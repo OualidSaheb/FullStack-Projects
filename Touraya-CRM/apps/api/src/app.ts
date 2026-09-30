@@ -64,7 +64,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   // Production: serve the built web app with SPA fallback.
   const webDist = path.resolve(config.WEB_DIST ?? path.join(process.cwd(), '../web/dist'));
   if (existsSync(webDist)) {
-    await app.register(fastifyStatic, { root: webDist, wildcard: false });
+    await app.register(fastifyStatic, { root: webDist });
     app.setNotFoundHandler((req, reply) =>
       req.url.startsWith('/api') ? reply.code(404).send({ error: 'غير موجود' }) : reply.sendFile('index.html'),
     );

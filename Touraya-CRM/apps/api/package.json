@@ -8,7 +8,8 @@
     "build": "tsup",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "db:generate": "drizzle-kit generate",
-    "db:seed": "tsx --env-file-if-exists=.env src/seed.ts"
+    "db:seed": "tsx --env-file-if-exists=.env src/seed-cli.ts",
+    "db:seed:prod": "node --env-file-if-exists=.env dist/seed-cli.js"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.16",

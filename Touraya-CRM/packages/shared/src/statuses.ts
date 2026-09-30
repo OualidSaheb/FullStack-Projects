@@ -36,10 +36,10 @@ export interface StatusMeta {
 
 export const STATUS_META: Record<OrderStatus, StatusMeta> = {
   new: { label: 'طلب جديد', short: 'جديد', stage: 'inbox', color: '#2563eb', icon: 'sparkles', manual: true },
-  call_1: { label: 'اتصال 1 - لم يرد', short: 'اتصال 1', stage: 'calling', color: '#ca8a04', icon: 'phone-missed', manual: true },
+  call_1: { label: 'اتصال 1 - لم يرد', short: 'اتصال 1', stage: 'calling', color: '#a16207', icon: 'phone-missed', manual: true },
   call_2: { label: 'اتصال 2 - لم يرد', short: 'اتصال 2', stage: 'calling', color: '#ea580c', icon: 'phone-missed', manual: true },
-  call_3: { label: 'اتصال 3 - لم يرد', short: 'اتصال 3', stage: 'calling', color: '#dc2626', icon: 'phone-missed', manual: true },
-  call_4: { label: 'اتصال 4 - لم يرد', short: 'اتصال 4', stage: 'calling', color: '#be185d', icon: 'phone-off', manual: true },
+  call_3: { label: 'اتصال 3 - لم يرد', short: 'اتصال 3', stage: 'calling', color: '#b91c1c', icon: 'phone-missed', manual: true },
+  call_4: { label: 'اتصال 4 - لم يرد', short: 'اتصال 4', stage: 'calling', color: '#c026d3', icon: 'phone-off', manual: true },
   postponed: { label: 'مؤجلة - اتصل لاحقاً', short: 'مؤجلة', stage: 'calling', color: '#64748b', icon: 'clock', manual: true },
   confirmed: { label: 'تم تأكيد الطلبية', short: 'مؤكدة', stage: 'confirmed', color: '#059669', icon: 'badge-check', manual: true },
   ready_for_carrier: { label: 'تم تجهيزها لشركة التوصيل', short: 'مجهزة', stage: 'shipping', color: '#7c3aed', icon: 'package', manual: false },

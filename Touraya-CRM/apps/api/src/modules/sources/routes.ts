@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { ingestSchema, resolveHeaders, sourceSchema, type SourceDTO } from '@touraya/shared';
 import { orders, sources } from '../../db/schema';
@@ -31,11 +31,16 @@ export const sourceRoutes: FastifyPluginAsync = async (app) => {
   }
 
   app.get('/sources', { preHandler: app.requireAuth }, async () => {
-    const rows = await app.db
-      .select({ source: sources, orderCount: sql<number>`(select count(*)::int from ${orders} where ${orders.sourceId} = ${sources.id} and ${orders.deletedAt} is null)` })
-      .from(sources)
-      .orderBy(asc(sources.id));
-    return rows.map((r) => toDTO(r.source, r.orderCount));
+    const [rows, counts] = await Promise.all([
+      app.db.select().from(sources).orderBy(asc(sources.id)),
+      app.db
+        .select({ sourceId: orders.sourceId, n: sql<number>`count(*)::int` })
+        .from(orders)
+        .where(isNull(orders.deletedAt))
+        .groupBy(orders.sourceId),
+    ]);
+    const bySource = new Map(counts.map((c) => [c.sourceId, c.n]));
+    return rows.map((s) => toDTO(s, bySource.get(s.id) ?? 0));
   });
 
   app.post('/sources', manage, async (req) => {

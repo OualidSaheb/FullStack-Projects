@@ -1,0 +1,101 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design tokens — every component uses these, so dark mode is a variable swap. */
+@theme {
+  --font-sans: 'IBM Plex Sans Arabic', ui-sans-serif, system-ui, sans-serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-subtle: var(--subtle);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-primary-soft: var(--primary-soft);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
+  --color-ok: var(--ok);
+  --color-ink: #0b1220;
+}
+
+:root {
+  --bg: #f4f5f8;
+  --surface: #ffffff;
+  --subtle: #f0f2f6;
+  --line: #e1e5ec;
+  --fg: #0f172a;
+  --muted: #4b5567;
+  --faint: #7c8596;
+  --primary: #4f46e5;
+  --primary-soft: #eef0ff;
+  --danger: #c81e1e;
+  --warn: #b45309;
+  --ok: #047857;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #0a0f1c;
+  --surface: #111827;
+  --subtle: #182033;
+  --line: #253049;
+  --fg: #e9edf5;
+  --muted: #a3adc2;
+  --faint: #76819a;
+  --primary: #818cf8;
+  --primary-soft: #1e2250;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --ok: #34d399;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers, phones and references read left-to-right inside RTL text. */
+.ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status chip: tinted background + readable text derived from the status hue (--s). */
+.status-chip {
+  background: color-mix(in oklab, var(--s) 13%, var(--surface));
+  color: color-mix(in oklab, var(--s) 78%, var(--fg));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--s) 28%, transparent);
+}
+.status-chip[data-active='true'] {
+  background: var(--s);
+  color: #fff;
+  box-shadow: none;
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+@keyframes slide-in {
+  from { transform: translateX(-24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-slide-in { animation: slide-in 0.18s ease-out; }
+.animate-fade-in { animation: fade-in 0.15s ease-out; }

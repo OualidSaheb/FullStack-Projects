@@ -42,6 +42,19 @@ Each project below includes a description, screenshot placeholder, and link.
 
 ---
 
+## 📦 6. **Touraya CRM — Facebook Orders Platform**
+**Tech:** TypeScript, React 19, Tailwind CSS 4, TanStack Query/Table, Fastify, Drizzle ORM, PostgreSQL, Google Apps Script, Vitest
+
+**Description:**
+A full order-management platform for Facebook Lead Ads: orders flow from Google Sheets through Apps Script into the CRM (deduplicated by Facebook Lead ID), with phone normalisation, Algerian wilaya/commune matching, a confirmation workflow with call tracking, comments and activity log, a reviewed carrier export (Yalidine template), a Yalidine API + webhook integration, statistics and role-based access. Arabic RTL UI with light/dark themes.
+
+📸 **Screenshot:**
+![Touraya CRM](./Touraya-CRM/docs/orders.png)
+
+🔗 **Project Link:**  [Here](./Touraya-CRM)
+
+---
+
 ## 🏢 5. **Retroaction — Internship Project**  
 **Tech:** Vue.js, Sass, Bootstrap 5, Axios, Pinia  
 **Team workflow:**  

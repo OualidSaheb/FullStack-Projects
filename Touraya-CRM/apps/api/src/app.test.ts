@@ -47,11 +47,13 @@ const ingest = (sheetName: string, rows: Record<string, unknown>[], token = sour
 beforeAll(async () => {
   process.env.ADMIN_EMAIL = 'admin@test.dz';
   process.env.ADMIN_PASSWORD = 'secret-pass';
-  database = await openDatabase({ pgliteDir: 'memory' });
+  // Embedded PGlite by default; set TEST_DATABASE_URL to run against a real (empty) Postgres.
+  database = await openDatabase({ url: process.env.TEST_DATABASE_URL, pgliteDir: 'memory' });
   await ensureBootstrap(database.db, () => {});
   app = await buildApp(loadConfig({ NODE_ENV: 'test', APP_SECRET: 'test-secret-1234567890' }), database.db);
   adminCookie = await login('admin@test.dz', 'secret-pass');
-  [source] = await database.db.select().from(sources).where(eq(sources.name, 'pants offer 3 - 4999 - DZ - More volume'));
+  const [row] = await database.db.select().from(sources).where(eq(sources.name, 'pants offer 3 - 4999 - DZ - More volume'));
+  source = row!;
 });
 
 afterAll(async () => {
@@ -193,6 +195,13 @@ describe('order workflow', () => {
 });
 
 describe('sources', () => {
+  it('lists sources with order counts', async () => {
+    const list = (await api('GET', '/sources')).json();
+    expect(list).toHaveLength(5);
+    expect(list.find((s: { id: number }) => s.id === source.id)).toMatchObject({ orderCount: 2, lastHeaders: expect.arrayContaining(['id', 'full_name']) });
+    expect(list[0].token).toBeUndefined();
+  });
+
   it('renders the Apps Script with the source token', async () => {
     const res = await api('GET', `/sources/${source.id}/apps-script`);
     expect(res.body).toContain('function setupTouraya');

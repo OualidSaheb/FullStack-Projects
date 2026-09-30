@@ -1,8 +1,6 @@
-import { pathToFileURL } from 'node:url';
 import { count, eq } from 'drizzle-orm';
 import type { ProductInput } from '@touraya/shared';
-import { loadConfig } from './config';
-import { openDatabase, type Db } from './db/client';
+import type { Db } from './db/client';
 import { products, sources, users } from './db/schema';
 import { hashPassword, randomToken } from './lib/crypto';
 import { ingestRows } from './modules/ingest/service';
@@ -55,7 +53,7 @@ export async function ensureBootstrap(db: Db, log: (msg: string) => void = conso
 }
 
 /** Fake leads to try the UI locally (npm run db:seed -- --demo). */
-async function seedDemo(db: Db) {
+export async function seedDemo(db: Db) {
   const [source] = await db.select().from(sources).where(eq(sources.formType, 'new')).limit(1);
   if (!source) return;
   const names = ['Karim Benali', 'Sara Haddad', 'Yacine Mebarki', 'Amina Cherif', 'Walid Bouzid', 'Nadia Kaci', 'Riad Saadi', 'Lina Ferhat'];
@@ -81,12 +79,4 @@ async function seedDemo(db: Db) {
   });
   const result = await ingestRows(db, source, { sheetName: 'Sheet1', rows }, { importFrom: '2000-01-01' });
   console.log(`Demo: ${result.created} orders created, ${result.duplicates} duplicates`);
-}
-
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const config = loadConfig();
-  const database = await openDatabase({ url: config.DATABASE_URL, pgliteDir: config.PGLITE_DIR });
-  await ensureBootstrap(database.db);
-  if (process.argv.includes('--demo')) await seedDemo(database.db);
-  await database.close();
 }
