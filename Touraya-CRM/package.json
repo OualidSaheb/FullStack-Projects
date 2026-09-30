@@ -1,0 +1,23 @@
+{
+  "name": "touraya-crm",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "dev": "npm run dev -w @touraya/api & npm run dev -w @touraya/web",
+    "dev:api": "npm run dev -w @touraya/api",
+    "dev:web": "npm run dev -w @touraya/web",
+    "build": "npm run build -w @touraya/web && npm run build -w @touraya/api",
+    "start": "npm run start -w @touraya/api",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/shared && tsc -p apps/api && tsc -p apps/web",
+    "db:generate": "npm run db:generate -w @touraya/api",
+    "db:seed": "npm run db:seed -w @touraya/api"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7",
+    "@types/node": "^22.15.0"
+  },
+  "engines": { "node": ">=22" }
+}
