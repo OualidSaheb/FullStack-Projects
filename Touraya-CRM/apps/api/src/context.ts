@@ -1,12 +1,14 @@
 import type { Config } from './config';
 import type { Db } from './db/client';
 import type { SecretBox } from './lib/crypto';
+import type { EventBus } from './lib/events';
 
 /** Dependencies shared by services; decorated onto the Fastify instance. */
 export interface AppContext {
   db: Db;
   config: Config;
   secrets: SecretBox;
+  events: EventBus;
 }
 
 declare module 'fastify' {

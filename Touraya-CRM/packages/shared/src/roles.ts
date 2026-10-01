@@ -18,6 +18,10 @@ export const PERMISSIONS = [
   'orders.delete',
   'orders.purge',
   'shipping.export',
+  'returns.manage',
+  'inventory.view',
+  'inventory.manage',
+  'customers.blacklist',
   'stats.view',
   'products.manage',
   'users.manage',
@@ -26,13 +30,17 @@ export const PERMISSIONS = [
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
-const AGENT: Permission[] = ['orders.view', 'orders.edit', 'orders.status', 'orders.comment'];
+const AGENT: Permission[] = ['orders.view', 'orders.edit', 'orders.status', 'orders.comment', 'inventory.view'];
 const MANAGER: Permission[] = [
   ...AGENT,
   'orders.status.any',
   'orders.assign',
   'orders.delete',
   'shipping.export',
+  'returns.manage',
+  'inventory.view',
+  'inventory.manage',
+  'customers.blacklist',
   'stats.view',
   'products.manage',
 ];
@@ -41,7 +49,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   admin: PERMISSIONS,
   manager: MANAGER,
   agent: AGENT,
-  viewer: ['orders.view'],
+  viewer: ['orders.view', 'inventory.view'],
 };
 
 export function can(role: Role, permission: Permission): boolean {

@@ -8,13 +8,17 @@ import type { Config } from './config';
 import type { Db } from './db/client';
 import { authPlugin } from './lib/auth';
 import { createSecretBox } from './lib/crypto';
+import { EventBus } from './lib/events';
 import { HttpError } from './lib/errors';
 import { authRoutes } from './modules/auth/routes';
 import { ingestRoutes } from './modules/ingest/routes';
 import { orderRoutes } from './modules/orders/routes';
-import { productRoutes } from './modules/products/routes';
+import { catalogRoutes } from './modules/catalog/routes';
+import { carrierRoutes } from './modules/carriers/routes';
+import { customerRoutes } from './modules/customers/routes';
+import { inventoryRoutes } from './modules/inventory/routes';
 import { settingsRoutes } from './modules/settings/routes';
-import { shippingRoutes, yalidineWebhookRoutes } from './modules/shipping/routes';
+import { carrierWebhookRoutes, shippingRoutes } from './modules/shipping/routes';
 import { sourceRoutes } from './modules/sources/routes';
 import { statsRoutes } from './modules/stats/routes';
 import { userRoutes } from './modules/users/routes';
@@ -28,6 +32,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   app.decorate('config', config);
   app.decorate('db', db);
   app.decorate('secrets', createSecretBox(config.APP_SECRET));
+  app.decorate('events', new EventBus((err, event) => app.log.error({ err, event }, 'event handler failed')));
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ZodError) {
@@ -49,14 +54,17 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
       api.get('/health', async () => ({ ok: true }));
       await api.register(authRoutes);
       await api.register(orderRoutes);
-      await api.register(productRoutes);
+      await api.register(catalogRoutes);
+      await api.register(inventoryRoutes);
+      await api.register(customerRoutes);
+      await api.register(carrierRoutes);
       await api.register(userRoutes);
       await api.register(sourceRoutes);
       await api.register(ingestRoutes);
       await api.register(shippingRoutes);
       await api.register(statsRoutes);
       await api.register(settingsRoutes);
-      await api.register(yalidineWebhookRoutes);
+      await api.register(carrierWebhookRoutes);
     },
     { prefix: '/api' },
   );

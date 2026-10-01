@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { ingestSchema } from '@touraya/shared';
 import { z } from 'zod';
@@ -6,22 +6,54 @@ import { sources } from '../../db/schema';
 import { HttpError } from '../../lib/errors';
 import { ingestRows } from './service';
 
-const bodySchema = ingestSchema.extend({ spreadsheetId: z.string() });
+const sheetBody = ingestSchema.extend({ spreadsheetId: z.string() });
 
-/** Public endpoint called by the Google Apps Script; authenticated by the per-source token. */
+/** Any JSON: one lead, an array of leads, or {rows:[{values}]}. Field names are mapped like sheet headers. */
+function toRows(body: unknown) {
+  const b = body as { rows?: unknown; leads?: unknown };
+  const list = Array.isArray(body) ? body : Array.isArray(b?.leads) ? b.leads : Array.isArray(b?.rows) ? b.rows : [body];
+  return list.slice(0, 500).map((item, i) => {
+    const values = (item as { values?: unknown })?.values ?? item;
+    if (!values || typeof values !== 'object') throw new HttpError(400, 'invalid lead payload');
+    return { rowNumber: i + 1, values: values as Record<string, unknown> };
+  });
+}
+
+function cors(reply: FastifyReply) {
+  reply.header('Access-Control-Allow-Origin', '*').header('Access-Control-Allow-Headers', 'Content-Type').header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+}
+
+/** Public endpoints, authenticated by the per-source token. */
 export const ingestRoutes: FastifyPluginAsync = async (app) => {
-  app.post('/ingest/sheets', { bodyLimit: 10 * 1024 * 1024 }, async (req) => {
-    const token = req.headers['x-touraya-token'];
+  async function sourceByToken(token: unknown, type?: 'google_sheet' | 'webhook') {
     if (typeof token !== 'string' || !token) throw new HttpError(401, 'missing token');
     const [source] = await app.db.select().from(sources).where(and(eq(sources.token, token), eq(sources.active, true)));
-    if (!source) throw new HttpError(401, 'invalid token');
+    if (!source || (type && source.type !== type)) throw new HttpError(401, 'invalid token');
+    return source;
+  }
 
-    const body = bodySchema.parse(req.body);
+  /** Google Apps Script. */
+  app.post('/ingest/sheets', { bodyLimit: 10 * 1024 * 1024 }, async (req) => {
+    const source = await sourceByToken(req.headers['x-touraya-token'], 'google_sheet');
+    const body = sheetBody.parse(req.body);
     // Guards against pasting one offer's script into another offer's sheet.
     if (body.spreadsheetId !== source.spreadsheetId) throw new HttpError(409, 'spreadsheet mismatch');
+    const { createdIds, ...summary } = await ingestRows(app.db, source, body);
+    if (createdIds.length) app.events.emit('order.created', createdIds.map((orderId) => ({ orderId, sourceId: source.id })));
+    req.log.info({ source: source.name, sheet: body.sheetName, created: summary.created, duplicates: summary.duplicates }, 'sheet sync');
+    return summary;
+  });
 
-    const { results, ...summary } = await ingestRows(app.db, source, body);
-    req.log.info({ source: source.name, sheet: body.sheetName, ...summary, errors: summary.errors.length }, 'sheet sync');
-    return { ...summary, results };
+  /** Generic webhook: website order form, Make/Zapier, Shopify/WooCommerce automations… */
+  app.options('/ingest/:token', async (_req, reply) => {
+    cors(reply);
+    return reply.code(204).send();
+  });
+  app.post('/ingest/:token', { bodyLimit: 2 * 1024 * 1024 }, async (req, reply) => {
+    cors(reply);
+    const source = await sourceByToken((req.params as { token: string }).token, 'webhook');
+    const { createdIds, results: _r, ...summary } = await ingestRows(app.db, source, { sheetName: 'webhook', rows: toRows(req.body) });
+    if (createdIds.length) app.events.emit('order.created', createdIds.map((orderId) => ({ orderId, sourceId: source.id })));
+    return { ...summary, orderIds: createdIds };
   });
 };

@@ -11,10 +11,11 @@ const order: ExportableOrder = {
   communeName: 'Bab Ezzouar',
   address: null,
   productCarrierName: 'p 3pcs 4999',
-  quantity: 1,
+  units: 3,
   price: 4999,
-  size: 'L',
-  colors: 'noir',
+  itemsLabel: 'L noir + L gris + L bleu',
+  deliveryType: 'home',
+  stopdeskId: null,
 };
 
 describe('carrier export', () => {
@@ -43,5 +44,6 @@ describe('carrier export', () => {
   it('validates required carrier fields', () => {
     expect(validateForCarrier(order)).toEqual([]);
     expect(validateForCarrier({ ...order, communeName: 'Oran', productCarrierName: null })).toHaveLength(2);
+    expect(validateForCarrier({ ...order, deliveryType: 'stopdesk' })).toEqual(['رقم مكتب Stop desk ناقص']);
   });
 });

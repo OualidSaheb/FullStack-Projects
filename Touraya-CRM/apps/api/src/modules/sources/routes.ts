@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { ingestSchema, resolveHeaders, sourceSchema, type SourceDTO } from '@touraya/shared';
+import { fieldMapSchema, ingestSchema, resolveHeaders, sourceSchema, type SourceDTO } from '@touraya/shared';
 import { orders, sources } from '../../db/schema';
 import { randomToken } from '../../lib/crypto';
 import { notFound } from '../../lib/errors';
@@ -12,7 +12,7 @@ const idParams = z.object({ id: z.coerce.number().int() });
 
 type SourceRow = typeof sources.$inferSelect;
 
-function toDTO(s: SourceRow, orderCount?: number): SourceDTO & { lastSyncStats: SourceRow['lastSyncStats'] } {
+function toDTO(s: SourceRow, orderCount = 0): SourceDTO {
   const { token: _token, createdAt: _c, updatedAt: _u, lastSyncAt, ...rest } = s;
   return { ...rest, lastSyncAt: lastSyncAt?.toISOString() ?? null, orderCount };
 }
@@ -71,6 +71,12 @@ export const sourceRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
+  /** Where a webhook source posts its orders (website form, Make/Zapier…). */
+  app.get('/sources/:id/endpoint', manage, async (req) => {
+    const s = await load(idParams.parse(req.params).id);
+    return { url: `${publicUrl(app, req)}/api/ingest/${s.token}` };
+  });
+
   app.get('/sources/:id/apps-script', manage, async (req, reply) => {
     const s = await load(idParams.parse(req.params).id);
     const code = renderAppsScript({
@@ -87,7 +93,7 @@ export const sourceRoutes: FastifyPluginAsync = async (app) => {
   /** Shows which sheet column feeds each order field (Facebook questions mapping screen). */
   app.post('/sources/:id/preview-mapping', manage, async (req) => {
     const s = await load(idParams.parse(req.params).id);
-    const body = z.object({ headers: z.array(z.string()).optional(), fieldMap: sourceSchema.shape.fieldMap.optional() }).parse(req.body ?? {});
+    const body = z.object({ headers: z.array(z.string()).optional(), fieldMap: fieldMapSchema.optional() }).parse(req.body ?? {});
     const headers = body.headers ?? s.lastHeaders;
     return { headers, mapping: resolveHeaders(headers, body.fieldMap ?? s.fieldMap) };
   });
@@ -96,7 +102,8 @@ export const sourceRoutes: FastifyPluginAsync = async (app) => {
   app.post('/sources/:id/import', manage, async (req) => {
     const s = await load(idParams.parse(req.params).id);
     const body = ingestSchema.extend({ importFrom: z.string().date().optional() }).parse(req.body);
-    const { results: _results, ...summary } = await ingestRows(app.db, s, body, { importFrom: body.importFrom, actorId: req.user.id });
+    const { results: _results, createdIds, ...summary } = await ingestRows(app.db, s, body, { importFrom: body.importFrom, actorId: req.user.id });
+    if (createdIds.length) app.events.emit('order.created', createdIds.map((orderId) => ({ orderId, sourceId: s.id })));
     return summary;
   });
 };

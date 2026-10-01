@@ -2,6 +2,9 @@ import type { OrderStatus } from './statuses';
 import type { Role } from './roles';
 import type { PhoneIssue } from './phone';
 import type { FieldMap } from './lead-mapping';
+import type { CarrierConfig, CarrierProvider, DeliveryType } from './carriers';
+import type { CustomerHistory, CustomerRiskLevel, OrderFlag } from './customers';
+import type { StockMovementType } from './schemas';
 
 /** API response shapes. */
 
@@ -14,30 +17,99 @@ export interface UserDTO {
   lastLoginAt: string | null;
 }
 
+export interface VariantDTO {
+  id: number;
+  size: string | null;
+  color: string | null;
+  sku: string;
+  stock: number;
+  reserved: number;
+  available: number;
+  active: boolean;
+}
+
 export interface ProductDTO {
   id: number;
   name: string;
-  carrierName: string;
-  price: number;
-  aliases: string[];
+  sku: string;
   sizes: string[];
   colors: string[];
+  costPrice: number;
+  lowStockAlert: number;
   active: boolean;
+  variants: VariantDTO[];
+}
+
+export interface OfferDTO {
+  id: number;
+  productId: number;
+  name: string;
+  carrierName: string;
+  units: number;
+  price: number;
+  aliases: string[];
+  active: boolean;
+}
+
+export interface StockMovementDTO {
+  id: number;
+  variantId: number;
+  productName: string;
+  size: string | null;
+  color: string | null;
+  type: StockMovementType;
+  quantity: number;
+  note: string | null;
+  orderId: string | null;
+  orderReference: string | null;
+  actorName: string | null;
+  createdAt: string;
 }
 
 export interface SourceDTO {
   id: number;
   name: string;
+  type: 'google_sheet' | 'webhook';
   spreadsheetId: string;
   formType: 'new' | 'legacy';
-  productId: number | null;
+  offerId: number | null;
   sheetNames: string[];
   importFrom: string;
   fieldMap: FieldMap;
   active: boolean;
   lastSyncAt: string | null;
   lastHeaders: string[];
-  orderCount?: number;
+  orderCount: number;
+  lastSyncStats: { at: string; received: number; created: number; duplicates: number; skipped: number; errors: { row: number; sheet: string; message: string }[] } | null;
+}
+
+export interface CarrierDTO {
+  id: number;
+  name: string;
+  provider: CarrierProvider;
+  active: boolean;
+  isDefault: boolean;
+  apiEnabled: boolean;
+  hasCredentials: boolean;
+  credentials: { apiId: string; apiToken: '' };
+  config: CarrierConfig;
+}
+
+export interface CarrierRateDTO {
+  wilayaCode: number;
+  homeFee: number | null;
+  deskFee: number | null;
+}
+
+export interface OrderItemDTO {
+  id: number;
+  productId: number;
+  productName: string;
+  variantId: number | null;
+  size: string | null;
+  color: string | null;
+  quantity: number;
+  available: number | null;
 }
 
 export interface OrderListItem {
@@ -50,19 +122,27 @@ export interface OrderListItem {
   wilayaCode: number | null;
   communeName: string | null;
   communeRaw: string | null;
-  productId: number | null;
-  productName: string | null;
-  quantity: number;
+  offerId: number | null;
+  offerName: string | null;
   price: number;
+  /** "L أسود + L رمادي" */
+  itemsLabel: string;
+  units: number;
   size: string | null;
   colors: string | null;
+  deliveryType: DeliveryType;
+  carrierId: number | null;
   sourceId: number | null;
   sourceName: string | null;
   assignedToId: number | null;
   assignedToName: string | null;
   callAttempts: number;
+  nextCallAt: string | null;
+  cancelReason: string | null;
   commentCount: number;
   lastComment: string | null;
+  flags: OrderFlag[];
+  risk: CustomerRiskLevel;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -76,8 +156,15 @@ export interface OrderDetail extends OrderListItem {
   wilayaRaw: string | null;
   address: string | null;
   offerRaw: string | null;
+  stopdeskId: string | null;
+  carrierName: string | null;
   carrierTracking: string | null;
   carrierStatus: string | null;
+  /** Delivery price the customer pays (from the carrier rates), null when unknown. */
+  deliveryFee: number | null;
+  items: OrderItemDTO[];
+  customer: (CustomerHistory & { id: number; blacklistReason: string | null }) | null;
+  duplicateOf: { id: string; reference: string; status: OrderStatus } | null;
   raw: Record<string, unknown>;
   sheetName: string | null;
   sheetRow: number | null;
@@ -101,6 +188,7 @@ export type OrderEventType =
   | 'carrier_error'
   | 'carrier_update'
   | 'phone_issue'
+  | 'stock'
   | 'deleted'
   | 'restored';
 
@@ -122,12 +210,13 @@ export interface Paginated<T> {
 export interface StatusCounts {
   byStatus: Partial<Record<OrderStatus, number>>;
   total: number;
-  phoneIssues: number;
-  unassigned: number;
+  problems: number;
+  due: number;
 }
 
 export interface ExportBatchDTO {
   id: number;
+  carrierName: string | null;
   orderCount: number;
   totalAmount: number;
   createdAt: string;
@@ -136,11 +225,24 @@ export interface ExportBatchDTO {
 }
 
 export interface StatsDTO {
-  totals: { all: number; confirmed: number; cancelled: number; shipped: number; delivered: number; phoneIssues: number; confirmationRate: number; deliveryRate: number; revenueConfirmed: number };
+  totals: {
+    all: number;
+    confirmed: number;
+    cancelled: number;
+    shipped: number;
+    delivered: number;
+    returned: number;
+    phoneIssues: number;
+    confirmationRate: number;
+    deliveryRate: number;
+    revenueConfirmed: number;
+    revenueDelivered: number;
+  };
   byStatus: { status: OrderStatus; count: number }[];
-  byProduct: { productId: number | null; name: string; count: number; confirmed: number }[];
-  byWilaya: { wilayaCode: number | null; count: number }[];
+  byOffer: { offerId: number | null; name: string; count: number; confirmed: number; delivered: number; returned: number }[];
+  byWilaya: { wilayaCode: number | null; count: number; delivered: number; returned: number }[];
   bySource: { sourceId: number | null; name: string; count: number }[];
   byAgent: { userId: number | null; name: string; handled: number; confirmed: number; cancelled: number; rate: number }[];
+  cancelReasons: { reason: string; count: number }[];
   daily: { day: string; count: number; confirmed: number }[];
 }

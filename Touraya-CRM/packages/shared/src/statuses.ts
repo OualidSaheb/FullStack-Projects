@@ -15,6 +15,7 @@ export const ORDER_STATUSES = [
   'carrier_received',
   'delivered',
   'returned',
+  'return_received',
   'cancelled',
 ] as const;
 
@@ -46,7 +47,8 @@ export const STATUS_META: Record<OrderStatus, StatusMeta> = {
   sent_to_carrier: { label: 'تم إرسالها إلى Yalidine', short: 'مرسلة', stage: 'shipping', color: '#0891b2', icon: 'send', manual: false },
   carrier_received: { label: 'استلمتها شركة التوصيل', short: 'عند الناقل', stage: 'shipping', color: '#4338ca', icon: 'truck', manual: false },
   delivered: { label: 'تم التوصيل', short: 'موصلة', stage: 'closed', color: '#15803d', icon: 'package-check', manual: false },
-  returned: { label: 'مرتجعة', short: 'مرتجعة', stage: 'closed', color: '#92400e', icon: 'undo-2', manual: false },
+  returned: { label: 'مرتجعة (في الطريق)', short: 'مرتجعة', stage: 'closed', color: '#92400e', icon: 'undo-2', manual: false },
+  return_received: { label: 'المرتجع وصل للمخزن', short: 'مرتجع مستلم', stage: 'closed', color: '#57534e', icon: 'warehouse', manual: false },
   cancelled: { label: 'إلغاء الطلبية', short: 'ملغاة', stage: 'closed', color: '#475569', icon: 'ban', manual: true },
 };
 
@@ -66,6 +68,15 @@ export function nextCallAttempt(current: OrderStatus): OrderStatus {
   if (idx === -1) return 'call_1';
   return CALL_ATTEMPT_STATUSES[Math.min(idx + 1, CALL_ATTEMPT_STATUSES.length - 1)]!;
 }
+
+/** Orders waiting for a call (the agent work queue). */
+export const QUEUE_STATUSES: OrderStatus[] = ['new', 'call_1', 'call_2', 'call_3', 'call_4', 'postponed'];
+
+/** The goods have physically left the warehouse in these statuses (stock is deducted). */
+export const STOCK_OUT_STATUSES: OrderStatus[] = ['ready_for_carrier', 'sent_to_carrier', 'carrier_received', 'delivered', 'returned'];
+
+/** Confirmed but not shipped yet: the goods are reserved. */
+export const RESERVING_STATUSES: OrderStatus[] = ['confirmed'];
 
 /** Statuses from which an order may be included in a carrier export. */
 export const EXPORTABLE_STATUSES: OrderStatus[] = ['confirmed', 'ready_for_carrier'];

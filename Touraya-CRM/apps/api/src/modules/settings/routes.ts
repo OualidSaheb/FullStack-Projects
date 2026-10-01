@@ -1,13 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { settingsSchema } from '@touraya/shared';
-import { getSettings, saveSettings, toPublicSettings } from './service';
+import { getSettings, saveSettings } from './service';
 
 export const settingsRoutes: FastifyPluginAsync = async (app) => {
-  // Quick comments are needed by every agent; the rest is admin-only.
-  app.get('/settings', { preHandler: app.requireAuth }, async () => toPublicSettings(await getSettings(app.db, app.secrets)));
+  // Quick comments, cancel reasons and the call policy are needed by every agent.
+  app.get('/settings', { preHandler: app.requireAuth }, async () => getSettings(app.db));
 
-  app.put('/settings', { preHandler: app.requirePermission('settings.manage') }, async (request) => {
-    const input = settingsSchema.parse(request.body);
-    return toPublicSettings(await saveSettings(app.db, app.secrets, input));
-  });
+  app.put('/settings', { preHandler: app.requirePermission('settings.manage') }, async (request) =>
+    saveSettings(app.db, settingsSchema.parse(request.body)),
+  );
 };

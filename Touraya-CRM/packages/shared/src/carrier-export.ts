@@ -15,11 +15,14 @@ export interface ExportableOrder {
   wilayaCode: number | null;
   communeName: string | null;
   address: string | null;
+  /** Coded offer name for the carrier, e.g. "p 3pcs 4999". */
   productCarrierName: string | null;
-  quantity: number;
+  units: number;
   price: number;
-  size: string | null;
-  colors: string | null;
+  /** Pieces as "L أسود + L رمادي". */
+  itemsLabel: string;
+  deliveryType: 'home' | 'stopdesk';
+  stopdeskId: string | null;
 }
 
 export const EXPORT_FIELDS = {
@@ -35,11 +38,15 @@ export const EXPORT_FIELDS = {
   to_commune_name: { label: 'البلدية', get: (o: ExportableOrder) => o.communeName ?? '' },
   address: { label: 'العنوان', get: (o: ExportableOrder) => o.address || o.communeName || '' },
   product_list: { label: 'المنتج (الاسم المشفر)', get: (o: ExportableOrder) => o.productCarrierName ?? '' },
+  product_with_items: {
+    label: 'المنتج + المقاسات والألوان',
+    get: (o: ExportableOrder) => [o.productCarrierName, o.itemsLabel && `(${o.itemsLabel})`].filter(Boolean).join(' '),
+  },
+  items: { label: 'المقاسات والألوان', get: (o: ExportableOrder) => o.itemsLabel },
+  stopdesk_id: { label: 'رقم مكتب Stop desk', get: (o: ExportableOrder) => (o.deliveryType === 'stopdesk' ? o.stopdeskId ?? '' : '') },
   price: { label: 'السعر', get: (o: ExportableOrder) => o.price },
   declared_value: { label: 'القيمة المصرح بها', get: (o: ExportableOrder) => o.price },
-  quantity: { label: 'الكمية', get: (o: ExportableOrder) => o.quantity },
-  size: { label: 'المقاس', get: (o: ExportableOrder) => o.size ?? '' },
-  colors: { label: 'الألوان', get: (o: ExportableOrder) => o.colors ?? '' },
+  quantity: { label: 'عدد القطع', get: (o: ExportableOrder) => o.units },
 } as const;
 
 export type ExportFieldKey = keyof typeof EXPORT_FIELDS;
@@ -57,7 +64,7 @@ export const DEFAULT_EXPORT_COLUMNS: ExportColumn[] = [
   { header: 'adresse', field: 'address' },
   { header: 'commune (nom)', field: 'to_commune_name' },
   { header: 'wilaya (nom)', field: 'to_wilaya_name' },
-  { header: "STOP DESK\n(si oui mettez\nl'ID du stopdesk)", value: '' },
+  { header: "STOP DESK\n(si oui mettez\nl'ID du stopdesk)", field: 'stopdesk_id' },
   { header: 'numero_commande', field: 'order_id' },
   { header: 'produit', field: 'product_list' },
   { header: 'prix', field: 'price' },
@@ -94,5 +101,6 @@ export function validateForCarrier(o: ExportableOrder): string[] {
     errors.push('البلدية غير موجودة في قائمة الولاية');
   if (!o.productCarrierName) errors.push('المنتج بدون اسم مشفر');
   if (!(o.price > 0)) errors.push('السعر غير صحيح');
+  if (o.deliveryType === 'stopdesk' && !o.stopdeskId) errors.push('رقم مكتب Stop desk ناقص');
   return errors;
 }
