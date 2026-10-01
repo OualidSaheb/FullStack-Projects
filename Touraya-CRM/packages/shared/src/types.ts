@@ -75,8 +75,10 @@ export interface SourceDTO {
   offerId: number | null;
   sheetNames: string[];
   importFrom: string;
+  syncMinutes: 1 | 5 | 10 | 15 | 30;
   fieldMap: FieldMap;
   active: boolean;
+  /** Last contact from the script (data or "alive" ping). */
   lastSyncAt: string | null;
   lastHeaders: string[];
   orderCount: number;

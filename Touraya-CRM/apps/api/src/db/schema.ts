@@ -131,6 +131,8 @@ export const sources = pgTable('sources', {
   offerId: integer('offer_id').references(() => offers.id, { onDelete: 'set null' }),
   sheetNames: jsonb('sheet_names').$type<string[]>().notNull().default(['Sheet1', 'Sheet2']),
   importFrom: text('import_from').notNull(), // YYYY-MM-DD
+  /** Apps Script trigger interval (1, 5, 10, 15 or 30 minutes). */
+  syncMinutes: integer('sync_minutes').$type<1 | 5 | 10 | 15 | 30>().notNull().default(5),
   fieldMap: jsonb('field_map').$type<FieldMap>().notNull().default({}),
   token: text('token').notNull().unique(),
   active: boolean('active').notNull().default(true),

@@ -8,6 +8,7 @@ import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useMe } from '@/lib/queries';
 import { PageLoader } from './ui';
+import { SyncAlert } from './sync-alert';
 
 const NAV: { to: string; label: string; short: string; icon: typeof ClipboardList; permission: Permission; mobile?: boolean }[] = [
   { to: '/work', label: 'وضع الاتصال', short: 'اتصال', icon: PhoneCall, permission: 'orders.status', mobile: true },
@@ -125,6 +126,7 @@ export function AppShell() {
           <span className="font-bold">Touraya</span>
         </header>
         <main className="min-w-0 flex-1 overflow-y-auto p-3 pb-20 scroll-thin sm:p-4 lg:p-6 lg:pb-6">
+          <SyncAlert />
           <Outlet />
         </main>
         {/* Phone navigation: the main screens one thumb away. */}

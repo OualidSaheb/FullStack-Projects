@@ -38,6 +38,11 @@ export const ingestRoutes: FastifyPluginAsync = async (app) => {
     const body = sheetBody.parse(req.body);
     // Guards against pasting one offer's script into another offer's sheet.
     if (body.spreadsheetId !== source.spreadsheetId) throw new HttpError(409, 'spreadsheet mismatch');
+    if (!body.rows.length) {
+      // "Still alive" ping: only refresh the last-contact time (keeps the last batch stats).
+      await app.db.update(sources).set({ lastSyncAt: new Date() }).where(eq(sources.id, source.id));
+      return { received: 0, created: 0, duplicates: 0, skipped: 0, errors: [], results: [] };
+    }
     const { createdIds, ...summary } = await ingestRows(app.db, source, body);
     if (createdIds.length) app.events.emit('order.created', createdIds.map((orderId) => ({ orderId, sourceId: source.id })));
     req.log.info({ source: source.name, sheet: body.sheetName, created: summary.created, duplicates: summary.duplicates }, 'sheet sync');

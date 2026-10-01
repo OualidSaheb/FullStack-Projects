@@ -180,6 +180,7 @@ export const sourceSchema = z
     offerId: z.number().int().positive().nullable(),
     sheetNames: z.array(z.string().trim().min(1)).default(['Sheet1', 'Sheet2']),
     importFrom: z.string().date(),
+    syncMinutes: z.union([z.literal(1), z.literal(5), z.literal(10), z.literal(15), z.literal(30)]).default(5),
     fieldMap: fieldMapSchema.default({}),
     active: z.boolean().default(true),
   })

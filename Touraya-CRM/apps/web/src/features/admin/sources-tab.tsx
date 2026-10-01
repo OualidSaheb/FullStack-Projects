@@ -6,9 +6,10 @@ import { SOURCE_TYPES, type SourceInput } from '@touraya/shared';
 import { api } from '@/lib/api';
 import { fmtDateTime, timeAgo } from '@/lib/format';
 import { qk, useAdminMutation, useOffers, useSources, type SourceWithStats } from '@/lib/queries';
+import { isSourceStale } from '@/components/sync-alert';
 import { Alert, Badge, Button, Card, EmptyState, Field, Input, Modal, PageLoader, Select, Switch, TagInput } from '@/components/ui';
 
-const DEFAULT_SOURCE: SourceInput = { name: '', type: 'google_sheet', spreadsheetId: '', formType: 'new', offerId: null, sheetNames: ['Sheet1', 'Sheet2'], importFrom: '2026-09-27', fieldMap: {}, active: true };
+const DEFAULT_SOURCE: SourceInput = { name: '', type: 'google_sheet', spreadsheetId: '', formType: 'new', offerId: null, sheetNames: ['Sheet1', 'Sheet2'], importFrom: '2026-09-27', syncMinutes: 5, fieldMap: {}, active: true };
 
 function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClose: () => void }) {
   const { data: offers } = useOffers();
@@ -53,6 +54,15 @@ function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClo
           )}
         </Field>
         {sheet && <Field label="الأوراق (Tabs) المقروءة" hint="اكتب الاسم ثم Enter">{() => <TagInput value={form.sheetNames} onChange={(v) => set('sheetNames', v)} />}</Field>}
+        {sheet && (
+          <Field label="التحقق من الشيت كل" hint="5 دقائق موصى به (حدود Google اليومية). فحص كامل كل 30 دقيقة في كل الحالات.">
+            {(id) => (
+              <Select id={id} value={form.syncMinutes} onChange={(e) => set('syncMinutes', Number(e.target.value) as SourceInput['syncMinutes'])}>
+                {[1, 5, 10, 15, 30].map((m) => <option key={m} value={m}>{m} دقيقة</option>)}
+              </Select>
+            )}
+          </Field>
+        )}
         <Field label="الاستيراد ابتداءً من">{(id) => <Input id={id} type="date" value={form.importFrom} onChange={(e) => set('importFrom', e.target.value)} />}</Field>
         <Switch checked={form.active} onChange={(v) => set('active', v)} label="مفعل (يستقبل الطلبيات)" />
       </div>
@@ -69,7 +79,9 @@ function SetupModal({ source, onClose }: { source: SourceWithStats; onClose: () 
     <>اذهب إلى <b>Extensions → Apps Script</b> واحذف أي كود قديم</>,
     <>الصق الكود المنسوخ واحفظ (Ctrl+S)</>,
     <>اختر الدالة <code className="rounded bg-subtle px-1.5 ltr">setupTouraya</code> واضغط <b>Run</b> ثم وافق على الصلاحيات</>,
-    <>الطلبيات الجديدة تصل كل دقيقة تقريباً. لإعادة إرسال الكل: شغّل <code className="rounded bg-subtle px-1.5 ltr">resendAllTouraya</code> (بدون تكرار)</>,
+    <>للتأكد من الربط: شغّل <code className="rounded bg-subtle px-1.5 ltr">testTouraya</code> ← تظهر طلبية «TEST Touraya» في المنصة (احذفها بعد ذلك)</>,
+    <>الطلبيات الجديدة تصل كل {source.syncMinutes} دقيقة. لإعادة إرسال الكل: <code className="rounded bg-subtle px-1.5 ltr">resendAllTouraya</code> (بدون تكرار)</>,
+    <>بعد أي تغيير في إعدادات المصدر (الأوراق، التاريخ، المدة) انسخ الكود من جديد وأعد تشغيل <code className="rounded bg-subtle px-1.5 ltr">setupTouraya</code></>,
   ];
   return (
     <Modal open onClose={onClose} size="lg" title={`إعداد الاستقبال — ${source.name}`} footer={<><Button variant="ghost" icon={<KeyRound className="size-4" />} loading={rotate.isPending} onClick={() => confirm('تغيير المفتاح يوقف الكود الحالي حتى تلصق الجديد. متابعة؟') && rotate.mutate(undefined)}>تغيير المفتاح</Button><Button variant="primary" icon={<Copy className="size-4" />} onClick={copy}>نسخ الكود</Button></>}>
@@ -119,7 +131,7 @@ function WebhookModal({ source, onClose }: { source: SourceWithStats; onClose: (
 function SyncStatus({ source }: { source: SourceWithStats }) {
   const s = source.lastSyncStats;
   if (!source.lastSyncAt || !s) return <Badge tone="warn">لم يتصل بعد</Badge>;
-  const stale = Date.now() - new Date(source.lastSyncAt).getTime() > 30 * 60_000;
+  const stale = isSourceStale(source);
   return (
     <div className="space-y-1 text-xs">
       <p className="flex items-center gap-1.5" title={fmtDateTime(source.lastSyncAt)}>

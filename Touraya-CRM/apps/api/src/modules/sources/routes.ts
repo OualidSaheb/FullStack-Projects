@@ -86,6 +86,7 @@ export const sourceRoutes: FastifyPluginAsync = async (app) => {
       spreadsheetId: s.spreadsheetId,
       sheets: s.sheetNames,
       startDate: s.importFrom,
+      syncMinutes: s.syncMinutes,
     });
     return reply.type('text/plain; charset=utf-8').send(code);
   });
