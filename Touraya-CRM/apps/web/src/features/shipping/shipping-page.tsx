@@ -31,7 +31,7 @@ export function ShippingPage() {
       />
 
       <Alert tone="primary" icon={<PackageCheck className="mt-0.5 size-4 shrink-0" />}>
-        اختر الطلبيات المؤكدة ← راجع الملف ← حمّله وارفعه في موقع Yalidine. بعد التحميل تتغير الحالة إلى «تم تجهيزها لشركة التوصيل» حتى لا ترسل مرتين.
+        اختر الطلبيات المؤكدة ← راجع الملف ← حمّله وارفعه في موقع شركة التوصيل (أو أرسل عبر API إن كان مفعلاً). بعد التحميل تتغير الحالة إلى «تم تجهيزها لشركة التوصيل» وتخرج القطع من المخزون، حتى لا ترسل مرتين.
       </Alert>
 
       <Card className="overflow-hidden">
@@ -57,14 +57,14 @@ export function ShippingPage() {
                     <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <Checkbox checked={selected.has(o.id)} onChange={() => toggle(o.id)} aria-label="تحديد" />
                     </td>
-                    <td className="ltr px-3 py-2.5 text-start font-semibold">{o.reference}</td>
-                    <td className="px-3 py-2.5">{o.customerName}<div className="ltr text-start text-xs text-muted">{o.phone}</div></td>
+                    <td className="ltr px-3 py-2.5 text-right font-semibold">{o.reference}</td>
+                    <td className="px-3 py-2.5">{o.customerName}<div className="ltr text-right text-xs text-muted">{o.phone}</div></td>
                     <td className="px-3 py-2.5">
                       {wilayaLabel(o.wilayaCode)}
                       <div className={o.communeName ? 'text-xs text-muted' : 'text-xs text-warn'}>{communeLabel(o.communeName, o.wilayaCode) ?? `${o.communeRaw ?? ''} ⚠`}</div>
                     </td>
-                    <td className="px-3 py-2.5">{o.productName ?? <span className="text-warn">—</span>}</td>
-                    <td className="ltr px-3 py-2.5 text-start">{fmtDA(o.price)}</td>
+                    <td className="px-3 py-2.5">{o.offerName ?? <span className="text-warn">—</span>}<div className="text-xs text-muted">{o.itemsLabel}</div></td>
+                    <td className="ltr px-3 py-2.5 text-right">{fmtDA(o.price)}</td>
                     <td className="px-3 py-2.5 text-xs text-muted">{timeAgo(o.updatedAt)}</td>
                   </tr>
                 ))}
@@ -83,7 +83,7 @@ export function ShippingPage() {
             {batches.map((b) => (
               <li key={b.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
                 <div>
-                  <p className="font-medium">ملف #{b.id} — {b.orderCount} طلبية · <span className="ltr">{fmtDA(b.totalAmount)}</span></p>
+                  <p className="font-medium">ملف #{b.id} {b.carrierName && `· ${b.carrierName}`} — {b.orderCount} طلبية · <span className="ltr">{fmtDA(b.totalAmount)}</span></p>
                   <p className="text-xs text-muted">{fmtDateTime(b.createdAt)} · {b.createdByName ?? '—'}</p>
                 </div>
                 <Button size="sm" icon={<Download className="size-3.5" />} onClick={() => download(`/shipping/exports/${b.id}/file`)}>

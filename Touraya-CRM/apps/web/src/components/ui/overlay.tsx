@@ -17,14 +17,15 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
   if (!open) return null;
   const width = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-6xl' }[size];
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/50 p-4 backdrop-blur-[2px] animate-fade-in sm:items-center" onMouseDown={onClose}>
-      <div role="dialog" aria-modal className={cn('w-full rounded-2xl border border-line bg-surface shadow-2xl', width)} onMouseDown={(e) => e.stopPropagation()}>
+    // Bottom sheet on phones, centered dialog on larger screens.
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/50 backdrop-blur-[2px] animate-fade-in sm:items-center sm:p-4" onMouseDown={onClose}>
+      <div role="dialog" aria-modal className={cn('w-full rounded-t-2xl border border-line bg-surface shadow-2xl sm:rounded-2xl', width)} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <h2 className="text-base font-semibold">{title}</h2>
           <IconButton label="إغلاق" icon={<X className="size-4" />} onClick={onClose} />
         </div>
-        <div className="max-h-[75vh] overflow-y-auto p-5 scroll-thin">{children}</div>
-        {footer && <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
+        <div className="max-h-[70dvh] overflow-y-auto p-5 scroll-thin">{children}</div>
+        {footer && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</div>}
       </div>
     </div>,
     document.body,

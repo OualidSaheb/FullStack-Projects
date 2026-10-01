@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { BarChart3, ClipboardList, LogOut, Menu, Moon, Settings2, Sun, Trash2, Truck, X } from 'lucide-react';
+import { BarChart3, Boxes, ClipboardList, LogOut, Menu, Moon, PhoneCall, Settings2, Sun, Trash2, Truck, Undo2, X } from 'lucide-react';
 import { ROLE_LABELS, type Permission } from '@touraya/shared';
 import { api, ApiError } from '@/lib/api';
 import { useCan } from '@/lib/auth';
@@ -9,12 +9,15 @@ import { cn } from '@/lib/cn';
 import { useMe } from '@/lib/queries';
 import { PageLoader } from './ui';
 
-const NAV: { to: string; label: string; icon: typeof ClipboardList; permission: Permission }[] = [
-  { to: '/orders', label: 'الطلبيات', icon: ClipboardList, permission: 'orders.view' },
-  { to: '/shipping', label: 'التوصيل', icon: Truck, permission: 'shipping.export' },
-  { to: '/stats', label: 'الإحصائيات', icon: BarChart3, permission: 'stats.view' },
-  { to: '/trash', label: 'المحذوفات', icon: Trash2, permission: 'orders.delete' },
-  { to: '/admin', label: 'الإدارة والإعدادات', icon: Settings2, permission: 'sources.manage' },
+const NAV: { to: string; label: string; short: string; icon: typeof ClipboardList; permission: Permission; mobile?: boolean }[] = [
+  { to: '/work', label: 'وضع الاتصال', short: 'اتصال', icon: PhoneCall, permission: 'orders.status', mobile: true },
+  { to: '/orders', label: 'الطلبيات', short: 'الطلبيات', icon: ClipboardList, permission: 'orders.view', mobile: true },
+  { to: '/shipping', label: 'التوصيل', short: 'التوصيل', icon: Truck, permission: 'shipping.export', mobile: true },
+  { to: '/returns', label: 'المرتجعات', short: 'مرتجعات', icon: Undo2, permission: 'returns.manage' },
+  { to: '/inventory', label: 'المخزون', short: 'المخزون', icon: Boxes, permission: 'inventory.view', mobile: true },
+  { to: '/stats', label: 'الإحصائيات', short: 'إحصائيات', icon: BarChart3, permission: 'stats.view' },
+  { to: '/trash', label: 'المحذوفات', short: 'محذوفات', icon: Trash2, permission: 'orders.delete' },
+  { to: '/admin', label: 'الإدارة والإعدادات', short: 'الإدارة', icon: Settings2, permission: 'sources.manage' },
 ];
 
 function useTheme() {
@@ -60,6 +63,7 @@ export function AppShell() {
     navigate('/login');
   };
 
+  const mobileNav = NAV.filter((n) => n.mobile && can(n.permission));
   const sidebar = (
     <nav className="flex h-full flex-col gap-1 bg-ink p-3 text-slate-300">
       <div className="mb-5 flex items-center gap-2.5 px-2 pt-2">
@@ -120,9 +124,18 @@ export function AppShell() {
           </button>
           <span className="font-bold">Touraya</span>
         </header>
-        <main className="min-w-0 flex-1 overflow-y-auto p-4 scroll-thin lg:p-6">
+        <main className="min-w-0 flex-1 overflow-y-auto p-3 pb-20 scroll-thin sm:p-4 lg:p-6 lg:pb-6">
           <Outlet />
         </main>
+        {/* Phone navigation: the main screens one thumb away. */}
+        <nav className="fixed inset-x-0 bottom-0 z-30 grid border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden" style={{ gridTemplateColumns: `repeat(${mobileNav.length}, minmax(0, 1fr))` }}>
+          {mobileNav.map(({ to, short, icon: Icon }) => (
+            <NavLink key={to} to={to} className={({ isActive }) => cn('flex h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium', isActive ? 'text-primary' : 'text-muted')}>
+              <Icon className="size-5" />
+              {short}
+            </NavLink>
+          ))}
+        </nav>
       </div>
     </div>
   );

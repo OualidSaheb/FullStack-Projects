@@ -58,7 +58,7 @@ export function UsersTab() {
           <tbody className="divide-y divide-line">
             {users?.map((u) => (
               <tr key={u.id}>
-                <td className="px-4 py-3 font-medium">{u.name}<div className="ltr text-start text-xs text-faint">{u.email}</div></td>
+                <td className="px-4 py-3 font-medium">{u.name}<div className="ltr text-right text-xs text-faint">{u.email}</div></td>
                 <td className="px-4 py-3"><Badge tone={u.role === 'admin' ? 'primary' : 'neutral'}>{ROLE_LABELS[u.role]}</Badge></td>
                 <td className="px-4 py-3 text-xs text-muted">{ROLE_PERMISSIONS[u.role].length} صلاحية</td>
                 <td className="px-4 py-3 text-xs text-muted">{fmtDateTime(u.lastLoginAt)}</td>

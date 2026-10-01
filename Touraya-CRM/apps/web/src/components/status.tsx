@@ -1,5 +1,5 @@
 import {
-  Ban, BadgeCheck, Clock, Package, PackageCheck, PhoneMissed, PhoneOff, Send, Sparkles, Truck, Undo2, type LucideIcon,
+  Ban, BadgeCheck, Clock, Package, PackageCheck, PhoneMissed, PhoneOff, Send, Sparkles, Truck, Undo2, Warehouse, type LucideIcon,
 } from 'lucide-react';
 import { STATUS_META, type OrderStatus } from '@touraya/shared';
 import { cn } from '@/lib/cn';
@@ -16,6 +16,7 @@ const ICONS: Record<string, LucideIcon> = {
   'package-check': PackageCheck,
   'undo-2': Undo2,
   ban: Ban,
+  warehouse: Warehouse,
 };
 
 export function StatusIcon({ status, className }: { status: OrderStatus; className?: string }) {

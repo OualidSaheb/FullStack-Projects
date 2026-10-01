@@ -1,13 +1,14 @@
 import { useMemo } from 'react';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef, type RowSelectionState } from '@tanstack/react-table';
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, MessageSquare, MapPinOff } from 'lucide-react';
-import { BLOCKING_PHONE_ISSUES, PHONE_ISSUES, type OrderListItem, type OrderListQuery } from '@touraya/shared';
+import { ArrowDown, ArrowUp, ArrowUpDown, Clock, MessageSquare, MapPinOff } from 'lucide-react';
+import type { OrderListItem, OrderListQuery } from '@touraya/shared';
 import { fmtDA, fmtDateTime, timeAgo } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { StatusBadge } from '@/components/status';
 import { CallButton } from '@/components/phone';
 import { communeLabel, wilayaLabel } from '@/components/geo-select';
 import { Checkbox } from '@/components/ui';
+import { FlagBadges, RiskBadge } from './parts/flags';
 
 type SortKey = OrderListQuery['sort'];
 
@@ -30,7 +31,7 @@ const columns: ColumnDef<OrderListItem>[] = [
     header: 'الطلبية',
     cell: ({ row: { original: o } }) => (
       <div className="leading-tight">
-        <p className="ltr text-start font-semibold whitespace-nowrap text-fg">{o.reference}</p>
+        <p className="ltr text-right font-semibold whitespace-nowrap text-fg">{o.reference}</p>
         <p className="mt-0.5 text-xs text-faint" title={fmtDateTime(o.createdAt)}>{timeAgo(o.createdAt)}</p>
       </div>
     ),
@@ -38,22 +39,18 @@ const columns: ColumnDef<OrderListItem>[] = [
   {
     id: 'customerName',
     header: 'الزبون',
-    cell: ({ row: { original: o } }) => {
-      const issue = o.phoneIssue && BLOCKING_PHONE_ISSUES.includes(o.phoneIssue);
-      return (
-        <div className="min-w-36 leading-tight">
-          <p className="font-medium">{o.customerName || <span className="text-faint">بدون اسم</span>}</p>
-          <div className="mt-1 flex items-center gap-1.5 text-xs">
-            <CallButton phone={o.phone} compact />
-            {issue && (
-              <span title={PHONE_ISSUES[o.phoneIssue!]} className="text-warn">
-                <AlertTriangle className="size-3.5" />
-              </span>
-            )}
-          </div>
+    cell: ({ row: { original: o } }) => (
+      <div className="min-w-36 space-y-1 leading-tight">
+        <p className="font-medium">{o.customerName || <span className="text-faint">بدون اسم</span>}</p>
+        <div className="flex items-center gap-1.5 text-xs">
+          <CallButton phone={o.phone} compact />
         </div>
-      );
-    },
+        <div className="flex flex-wrap gap-1">
+          <RiskBadge risk={o.risk} />
+          <FlagBadges flags={o.flags.filter((f) => f !== 'commune' && f !== 'risky' && f !== 'blacklisted')} compact />
+        </div>
+      </div>
+    ),
   },
   {
     id: 'wilayaCode',
@@ -77,25 +74,34 @@ const columns: ColumnDef<OrderListItem>[] = [
     header: 'العرض',
     cell: ({ row: { original: o } }) => (
       <div className="min-w-32 leading-tight">
-        <p className="font-medium">{o.productName ?? <span className="text-warn">بدون عرض</span>}</p>
-        <p className="ltr mt-0.5 text-start text-xs text-muted">{fmtDA(o.price)}{o.quantity > 1 ? ` · ×${o.quantity}` : ''}</p>
+        <p className="font-medium">{o.offerName ?? <span className="text-warn">بدون عرض</span>}</p>
+        <p className="ltr mt-0.5 text-right text-xs text-muted">{fmtDA(o.price)}</p>
       </div>
     ),
   },
   {
-    id: 'variant',
-    header: 'المقاس / الألوان',
+    id: 'items',
+    header: 'القطع',
     cell: ({ row: { original: o } }) => (
-      <div className="max-w-44 leading-tight">
-        {o.size && <span className="me-1.5 inline-block rounded bg-subtle px-1.5 py-0.5 text-xs font-semibold">{o.size}</span>}
-        <span className="text-xs text-muted">{o.colors ?? ''}</span>
-      </div>
+      <p className={o.flags.includes('variants') ? 'max-w-48 text-xs text-warn' : 'max-w-48 text-xs text-muted'}>
+        {o.itemsLabel || [o.size, o.colors].filter(Boolean).join(' · ') || '—'}
+      </p>
     ),
   },
   {
     id: 'status',
     header: 'الحالة',
-    cell: ({ row: { original: o } }) => <StatusBadge status={o.status} short />,
+    cell: ({ row: { original: o } }) => (
+      <div className="space-y-1">
+        <StatusBadge status={o.status} short />
+        {o.nextCallAt && (
+          <p className="flex items-center gap-1 text-[11px] text-muted" title={fmtDateTime(o.nextCallAt)}>
+            <Clock className="size-3" />
+            {fmtDateTime(o.nextCallAt)}
+          </p>
+        )}
+      </div>
+    ),
   },
   {
     id: 'agent',

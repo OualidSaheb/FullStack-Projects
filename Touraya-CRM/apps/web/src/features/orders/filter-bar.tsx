@@ -1,7 +1,6 @@
-import { AlertTriangle, FilterX } from 'lucide-react';
-import { WILAYAS } from '@touraya/shared';
-import { useProducts, useSources, useUsers } from '@/lib/queries';
-import { cn } from '@/lib/cn';
+import { FilterX } from 'lucide-react';
+import { ORDER_FLAGS, ORDER_PROBLEMS, WILAYAS } from '@touraya/shared';
+import { useOffers, useSources, useUsers } from '@/lib/queries';
 import { Button, Input, Select } from '@/components/ui';
 import type { useOrderFilters } from './use-order-filters';
 
@@ -9,16 +8,16 @@ type Filters = ReturnType<typeof useOrderFilters>;
 
 export function FilterBar({ filters }: { filters: Filters }) {
   const { query, set, clear, activeFilterCount } = filters;
-  const { data: products } = useProducts();
+  const { data: offers } = useOffers();
   const { data: sources } = useSources();
   const { data: users } = useUsers();
   const selectCls = 'h-8 w-auto min-w-32 max-w-56 text-xs';
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Select className={selectCls} value={query.productId ?? ''} onChange={(e) => set({ productId: e.target.value })} aria-label="العرض">
+      <Select className={selectCls} value={query.offerId ?? ''} onChange={(e) => set({ offerId: e.target.value })} aria-label="العرض">
         <option value="">كل العروض</option>
-        {products?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        {offers?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
       </Select>
       <Select className={selectCls} value={query.sourceId ?? ''} onChange={(e) => set({ sourceId: e.target.value })} aria-label="المصدر">
         <option value="">كل المصادر</option>
@@ -39,16 +38,10 @@ export function FilterBar({ filters }: { filters: Filters }) {
         <span>→</span>
         <Input type="date" className="h-8 w-36 text-xs" value={query.to ?? ''} onChange={(e) => set({ to: e.target.value })} aria-label="إلى تاريخ" />
       </div>
-      <button
-        onClick={() => set({ phoneIssue: query.phoneIssue ? undefined : true })}
-        className={cn(
-          'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition',
-          query.phoneIssue ? 'border-warn bg-warn text-white dark:text-ink' : 'border-line bg-surface text-muted hover:text-fg',
-        )}
-      >
-        <AlertTriangle className="size-3.5" />
-        مشكل هاتف
-      </button>
+      <Select className={selectCls} value={query.problem ?? ''} onChange={(e) => set({ problem: e.target.value })} aria-label="المشاكل">
+        <option value="">كل الطلبيات</option>
+        {ORDER_PROBLEMS.map((p) => <option key={p} value={p}>⚠ {ORDER_FLAGS[p]}</option>)}
+      </Select>
       {(activeFilterCount > 0 || query.q || query.status?.length) && (
         <Button size="sm" variant="ghost" icon={<FilterX className="size-3.5" />} onClick={clear}>
           مسح الفلاتر

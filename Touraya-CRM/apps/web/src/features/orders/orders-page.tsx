@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import type { RowSelectionState } from '@tanstack/react-table';
-import { Inbox, PhoneForwarded, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Inbox, PhoneForwarded, RefreshCw, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
+import { cn } from '@/lib/cn';
 import { useDeleteByFilter, useOrderCounts, useOrders } from '@/lib/queries';
 import { Button, Card, EmptyState, Input, Modal, PageHeader, PageLoader } from '@/components/ui';
 import { ExportReviewModal } from '../shipping/export-review-modal';
 import { BulkBar } from './bulk-bar';
 import { FilterBar } from './filter-bar';
+import { OrderCards } from './order-cards';
 import { OrderDrawer } from './order-drawer';
 import { OrdersTable } from './orders-table';
 import { Pagination } from './pagination';
@@ -39,16 +41,11 @@ export function OrdersPage({ trash = false }: { trash?: boolean }) {
   const [selection, setSelection] = useState<RowSelectionState>({});
   const [exportIds, setExportIds] = useState<string[] | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const deleteByFilter = useDeleteByFilter();
   const selectedIds = Object.keys(selection).filter((k) => selection[k]);
 
   useEffect(() => setSelection({}), [trash]);
-
-  const openNext = async () => {
-    const { id } = await api.get<{ id: string | null }>('/orders/next');
-    if (id) openOrder(id);
-    else toast.info('لا توجد طلبيات جديدة 🎉');
-  };
 
   return (
     <div className="space-y-4">
@@ -59,17 +56,22 @@ export function OrdersPage({ trash = false }: { trash?: boolean }) {
           <>
             <SearchBox value={query.q ?? ''} onChange={(q) => set({ q })} />
             <Button variant="ghost" aria-label="تحديث" icon={<RefreshCw className={isFetching ? 'size-4 animate-spin' : 'size-4'} />} onClick={() => refetch()} />
-            {!trash && (
-              <Button variant="primary" icon={<PhoneForwarded className="size-4" />} onClick={openNext}>
-                الطلبية التالية
-              </Button>
+            <Button className="md:hidden" aria-label="الفلاتر" icon={<SlidersHorizontal className="size-4" />} onClick={() => setShowFilters(!showFilters)}>
+              {filters.activeFilterCount > 0 && <span className="ltr">{filters.activeFilterCount}</span>}
+            </Button>
+            {!trash && can('orders.status') && (
+              <Link to="/work" className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-medium text-white shadow-sm hover:brightness-110 dark:text-ink">
+                <PhoneForwarded className="size-4" />
+                وضع الاتصال
+                {counts?.due ? <span className="ltr rounded-full bg-white/20 px-1.5 text-xs">{counts.due}</span> : null}
+              </Link>
             )}
           </>
         }
       />
 
       <StatusTabs counts={counts} selected={query.status ?? []} onChange={(status) => set({ status })} />
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className={cn('flex-wrap items-center justify-between gap-2 md:flex', showFilters ? 'flex' : 'hidden')}>
         <FilterBar filters={filters} />
         {!trash && can('orders.delete') && (filters.activeFilterCount > 0 || query.q || query.status?.length) && data && data.total > 0 ? (
           <Button size="sm" variant="ghost" className="text-danger" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirmDelete(true)}>
@@ -91,6 +93,10 @@ export function OrdersPage({ trash = false }: { trash?: boolean }) {
           </EmptyState>
         ) : (
           <>
+            <div className="md:hidden">
+              <OrderCards rows={data.items} selected={selection} onToggle={(id) => setSelection((s) => ({ ...s, [id]: !s[id] }))} onOpen={openOrder} />
+            </div>
+            <div className="hidden md:block">
             <OrdersTable
               rows={data.items}
               sort={query.sort}
@@ -101,12 +107,13 @@ export function OrdersPage({ trash = false }: { trash?: boolean }) {
               onOpen={openOrder}
               activeId={openOrderId}
             />
+            </div>
             <Pagination page={data.page} pageSize={data.pageSize} total={data.total} onChange={(p) => set({ ...p, page: p.page })} />
           </>
         )}
       </Card>
 
-      <OrderDrawer orderId={openOrderId} onClose={() => openOrder(null)} />
+      <OrderDrawer orderId={openOrderId} onClose={() => openOrder(null)} onOpenOrder={openOrder} />
       {exportIds && <ExportReviewModal ids={exportIds} onClose={() => { setExportIds(null); setSelection({}); }} onOpenOrder={openOrder} />}
 
       <Modal

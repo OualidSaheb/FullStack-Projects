@@ -1,17 +1,18 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMutation } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Download, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import type { OrderStatus } from '@touraya/shared';
 import { api, ApiError, download } from '@/lib/api';
-import { errorMessage, qk, useSettings } from '@/lib/queries';
+import { errorMessage, qk, useCarriers } from '@/lib/queries';
 import { cn } from '@/lib/cn';
 import { StatusBadge } from '@/components/status';
-import { Alert, Button, Modal, PageLoader } from '@/components/ui';
+import { Alert, Button, Modal, PageLoader, Select } from '@/components/ui';
 
 interface Preview {
+  carrier: { id: number; name: string; apiEnabled: boolean };
   headers: string[];
-  rows: { id: string; reference: string; status: OrderStatus; cells: (string | number)[]; errors: string[] }[];
+  rows: { id: string; reference: string; status: OrderStatus; cells: (string | number)[]; errors: string[]; warnings: string[] }[];
 }
 
 /**
@@ -20,12 +21,14 @@ interface Preview {
  */
 export function ExportReviewModal({ ids, onClose, onOpenOrder }: { ids: string[]; onClose: () => void; onOpenOrder?: (id: string) => void }) {
   const qc = useQueryClient();
-  const { data: settings } = useSettings();
+  const { data: carriers } = useCarriers();
+  const [carrierId, setCarrierId] = useState<number | undefined>();
   const { data, isLoading } = useQuery({
-    queryKey: ['shipping-preview', ids],
-    queryFn: () => api.post<Preview>('/shipping/preview', { ids }),
+    queryKey: ['shipping-preview', ids, carrierId],
+    queryFn: () => api.post<Preview>('/shipping/preview', { ids, carrierId }),
     enabled: ids.length > 0,
   });
+  const warned = data?.rows.filter((r) => !r.errors.length && r.warnings.length) ?? [];
   const valid = data?.rows.filter((r) => !r.errors.length) ?? [];
   const invalid = data?.rows.filter((r) => r.errors.length) ?? [];
 
@@ -36,7 +39,7 @@ export function ExportReviewModal({ ids, onClose, onOpenOrder }: { ids: string[]
   };
 
   const exportFile = useMutation({
-    mutationFn: () => api.post<{ id: number; fileName: string }>('/shipping/exports', { ids: valid.map((r) => r.id) }),
+    mutationFn: () => api.post<{ id: number; fileName: string }>('/shipping/exports', { ids: valid.map((r) => r.id), carrierId: data?.carrier.id }),
     onSuccess: (batch) => {
       download(`/shipping/exports/${batch.id}/file`);
       toast.success(`تم تجهيز ${valid.length} طلبية لشركة التوصيل`);
@@ -46,10 +49,10 @@ export function ExportReviewModal({ ids, onClose, onOpenOrder }: { ids: string[]
   });
 
   const sendApi = useMutation({
-    mutationFn: () => api.post<{ results: { ok: boolean; reference: string; message?: string }[] }>('/shipping/yalidine/send', { ids: valid.map((r) => r.id) }),
+    mutationFn: () => api.post<{ results: { ok: boolean; reference: string; message?: string }[] }>('/shipping/send', { ids: valid.map((r) => r.id), carrierId: data?.carrier.id }),
     onSuccess: ({ results }) => {
       const ok = results.filter((r) => r.ok).length;
-      if (ok) toast.success(`تم إرسال ${ok} طلبية إلى Yalidine`);
+      if (ok) toast.success(`تم إرسال ${ok} طلبية إلى ${data?.carrier.name}`);
       results.filter((r) => !r.ok).forEach((r) => toast.error(`${r.reference}: ${r.message}`));
       done();
     },
@@ -61,11 +64,11 @@ export function ExportReviewModal({ ids, onClose, onOpenOrder }: { ids: string[]
       open
       onClose={onClose}
       size="xl"
-      title="مراجعة ملف شركة التوصيل"
+      title={`مراجعة ملف التوصيل${data ? ` — ${data.carrier.name}` : ''}`}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>إلغاء</Button>
-          {settings?.yalidine.enabled && (
+          {data?.carrier.apiEnabled && (
             <Button icon={<Send className="size-4" />} disabled={!valid.length} loading={sendApi.isPending} onClick={() => sendApi.mutate()}>
               إرسال عبر API
             </Button>
@@ -80,6 +83,11 @@ export function ExportReviewModal({ ids, onClose, onOpenOrder }: { ids: string[]
         <PageLoader />
       ) : (
         <div className="space-y-4">
+          {carriers && carriers.filter((c) => c.active).length > 1 && (
+            <Select className="w-auto" value={data.carrier.id} onChange={(e) => setCarrierId(Number(e.target.value))} aria-label="شركة التوصيل">
+              {carriers.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <Alert tone="ok" icon={<CheckCircle2 className="mt-0.5 size-4 shrink-0" />}>
               <b>{valid.length}</b> طلبية جاهزة — ستتغير حالتها إلى «تم تجهيزها لشركة التوصيل» بعد التحميل.
@@ -91,6 +99,16 @@ export function ExportReviewModal({ ids, onClose, onOpenOrder }: { ids: string[]
             )}
           </div>
 
+          {warned.length > 0 && (
+            <ul className="divide-y divide-line rounded-lg border border-warn/30 text-sm">
+              {warned.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                  <button className="ltr font-semibold text-primary hover:underline" onClick={() => onOpenOrder?.(r.id)}>{r.reference}</button>
+                  <span className="text-warn">{r.warnings.join(' · ')}</span>
+                </li>
+              ))}
+            </ul>
+          )}
           {invalid.length > 0 && (
             <ul className="divide-y divide-line rounded-lg border border-danger/30">
               {invalid.map((r) => (

@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { AlertTriangle, BadgeCheck, Ban, Package, Truck, Users } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, Ban, Package, PackageCheck, Truck, Undo2, Users } from 'lucide-react';
 import { STATUS_META, type OrderFilter } from '@touraya/shared';
 import { fmtDA, fmtNumber, todayDZ } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import { useProducts, useStats } from '@/lib/queries';
+import { useOffers, useStats } from '@/lib/queries';
 import { wilayaLabel } from '@/components/geo-select';
 import { StatusIcon } from '@/components/status';
 import { Card, CardHeader, PageHeader, PageLoader, Select } from '@/components/ui';
@@ -18,9 +18,9 @@ const RANGES = [
 
 export function StatsPage() {
   const [range, setRange] = useState<(typeof RANGES)[number]['key']>('30d');
-  const [productId, setProductId] = useState<number | undefined>();
-  const { data: products } = useProducts();
-  const filter: OrderFilter = { from: RANGES.find((r) => r.key === range)!.from(), productId };
+  const [offerId, setOfferId] = useState<number | undefined>();
+  const { data: offers } = useOffers();
+  const filter: OrderFilter = { from: RANGES.find((r) => r.key === range)!.from(), offerId };
   const { data, isLoading } = useStats(filter);
 
   return (
@@ -36,9 +36,9 @@ export function StatsPage() {
                 </button>
               ))}
             </div>
-            <Select className="h-9 w-auto text-sm" value={productId ?? ''} onChange={(e) => setProductId(e.target.value ? Number(e.target.value) : undefined)} aria-label="العرض">
+            <Select className="h-9 w-auto text-sm" value={offerId ?? ''} onChange={(e) => setOfferId(e.target.value ? Number(e.target.value) : undefined)} aria-label="العرض">
               <option value="">كل العروض</option>
-              {products?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {offers?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </Select>
           </>
         }
@@ -48,13 +48,15 @@ export function StatsPage() {
         <PageLoader />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <StatTile label="كل الطلبيات" value={fmtNumber(data.totals.all)} icon={<Package className="size-4" />} />
             <StatTile label="المؤكدة" value={fmtNumber(data.totals.confirmed)} hint={`نسبة التأكيد ${data.totals.confirmationRate}%`} icon={<BadgeCheck className="size-4 text-ok" />} />
             <StatTile label="الملغاة" value={fmtNumber(data.totals.cancelled)} icon={<Ban className="size-4" />} />
-            <StatTile label="جهزت للتوصيل" value={fmtNumber(data.totals.shipped)} hint={`موصلة ${data.totals.delivered} · نسبة التوصيل ${data.totals.deliveryRate}%`} icon={<Truck className="size-4" />} />
+            <StatTile label="جهزت للتوصيل" value={fmtNumber(data.totals.shipped)} icon={<Truck className="size-4" />} />
+            <StatTile label="الموصلة" value={fmtNumber(data.totals.delivered)} hint={`نسبة التوصيل ${data.totals.deliveryRate}%`} icon={<PackageCheck className="size-4 text-ok" />} />
+            <StatTile label="المرتجعة" value={fmtNumber(data.totals.returned)} icon={<Undo2 className="size-4 text-warn" />} />
             <StatTile label="مشكل هاتف" value={fmtNumber(data.totals.phoneIssues)} icon={<AlertTriangle className="size-4 text-warn" />} />
-            <StatTile label="قيمة المؤكدة" value={fmtDA(data.totals.revenueConfirmed)} />
+            <StatTile label="مداخيل الموصلة" value={fmtDA(data.totals.revenueDelivered)} hint={`المؤكدة: ${fmtDA(data.totals.revenueConfirmed)}`} />
           </div>
 
           <div className="grid gap-4 xl:grid-cols-3">
@@ -82,11 +84,11 @@ export function StatsPage() {
               <CardHeader title="أفضل العروض" />
               <div className="p-4">
                 <BarList
-                  items={data.byProduct.map((p) => ({
-                    key: p.productId ?? 'none',
+                  items={data.byOffer.map((p) => ({
+                    key: p.offerId ?? 'none',
                     label: p.name,
                     value: p.count,
-                    extra: <span className="ms-1.5 text-xs font-normal text-muted">({p.confirmed} مؤكدة)</span>,
+                    extra: <span className="ms-1.5 text-xs font-normal text-muted">({p.confirmed} مؤكدة · {p.delivered} موصلة · {p.returned} مرتجعة)</span>,
                   }))}
                 />
               </div>
@@ -94,10 +96,23 @@ export function StatsPage() {
             <Card>
               <CardHeader title="الولايات الأكثر طلباً" />
               <div className="max-h-96 overflow-y-auto p-4 scroll-thin">
-                <BarList items={data.byWilaya.slice(0, 15).map((w) => ({ key: w.wilayaCode ?? 'none', label: w.wilayaCode ? wilayaLabel(w.wilayaCode) : 'غير محددة', value: w.count }))} />
+                <BarList
+                  items={data.byWilaya.slice(0, 15).map((w) => ({
+                    key: w.wilayaCode ?? 'none',
+                    label: w.wilayaCode ? wilayaLabel(w.wilayaCode) : 'غير محددة',
+                    value: w.count,
+                    extra: w.returned > 0 ? <span className="ms-1.5 text-xs font-normal text-warn">({w.returned} مرتجعة)</span> : undefined,
+                  }))}
+                />
               </div>
             </Card>
             <Card>
+              <CardHeader title="أسباب الإلغاء" />
+              <div className="p-4">
+                <BarList color="var(--danger)" items={data.cancelReasons.map((r) => ({ key: r.reason, label: r.reason, value: r.count }))} />
+              </div>
+            </Card>
+            <Card className="xl:col-span-3">
               <CardHeader title="حسب المصدر" />
               <div className="p-4">
                 <BarList items={data.bySource.map((s) => ({ key: s.sourceId ?? 'none', label: s.name, value: s.count }))} />
@@ -116,9 +131,9 @@ export function StatsPage() {
                   {data.byAgent.map((a) => (
                     <tr key={a.userId ?? 'none'}>
                       <td className="px-4 py-2.5 font-medium">{a.name}</td>
-                      <td className="ltr px-4 py-2.5 text-start">{a.handled}</td>
-                      <td className="ltr px-4 py-2.5 text-start text-ok">{a.confirmed}</td>
-                      <td className="ltr px-4 py-2.5 text-start">{a.cancelled}</td>
+                      <td className="ltr px-4 py-2.5 text-right">{a.handled}</td>
+                      <td className="ltr px-4 py-2.5 text-right text-ok">{a.confirmed}</td>
+                      <td className="ltr px-4 py-2.5 text-right">{a.cancelled}</td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
                           <div className="h-1.5 w-24 rounded-full bg-subtle"><div className="h-1.5 rounded-full bg-ok" style={{ width: `${a.rate}%` }} /></div>

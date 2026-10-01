@@ -6,19 +6,19 @@ import { cn } from '@/lib/cn';
 import { PageHeader } from '@/components/ui';
 import { ImportTab } from './import-tab';
 import { MappingTab } from './mapping-tab';
-import { ProductsTab } from './products-tab';
+import { CatalogTab } from './catalog-tab';
+import { CarriersTab } from './carriers-tab';
 import { SettingsTab } from './settings-tab';
 import { SourcesTab } from './sources-tab';
 import { UsersTab } from './users-tab';
-import { YalidineTab } from './yalidine-tab';
 
 const TABS: { key: string; label: string; icon: typeof Sheet; permission: Permission; element: () => React.ReactNode }[] = [
+  { key: 'catalog', label: 'المنتجات والعروض', icon: Package, permission: 'products.manage', element: () => <CatalogTab /> },
   { key: 'sources', label: 'المصادر', icon: Sheet, permission: 'sources.manage', element: () => <SourcesTab /> },
   { key: 'fields', label: 'أسئلة Facebook', icon: ListChecks, permission: 'sources.manage', element: () => <MappingTab /> },
   { key: 'import', label: 'استيراد القديم', icon: FileInput, permission: 'sources.manage', element: () => <ImportTab /> },
-  { key: 'products', label: 'العروض', icon: Package, permission: 'products.manage', element: () => <ProductsTab /> },
   { key: 'users', label: 'الموظفون', icon: Users, permission: 'users.manage', element: () => <UsersTab /> },
-  { key: 'yalidine', label: 'Yalidine', icon: Truck, permission: 'settings.manage', element: () => <YalidineTab /> },
+  { key: 'carriers', label: 'شركات التوصيل', icon: Truck, permission: 'settings.manage', element: () => <CarriersTab /> },
   { key: 'settings', label: 'إعدادات عامة', icon: Settings2, permission: 'settings.manage', element: () => <SettingsTab /> },
 ];
 

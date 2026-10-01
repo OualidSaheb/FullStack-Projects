@@ -1,81 +1,80 @@
-import { ArrowDown, ArrowUp, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { DEFAULT_EXPORT_COLUMNS, EXPORT_FIELDS, type ExportColumn, type ExportFieldKey } from '@touraya/shared';
-import { Button, Card, CardHeader, Field, IconButton, Input, PageLoader, Select, TagInput } from '@/components/ui';
+import type { Settings } from '@touraya/shared';
+import { cn } from '@/lib/cn';
+import { Button, Card, CardHeader, Field, Input, PageLoader, Select, Switch, TagInput } from '@/components/ui';
 import { useSettingsForm } from './use-settings-form';
 
-function ColumnRow({ col, onChange, onMove, onRemove }: { col: ExportColumn; onChange: (c: ExportColumn) => void; onMove: (d: -1 | 1) => void; onRemove: () => void }) {
-  const isField = 'field' in col;
-  return (
-    <div className="grid grid-cols-12 items-center gap-2 py-2">
-      <Input className="col-span-12 sm:col-span-5" dir="ltr" value={col.header.replace(/\n/g, ' ⏎ ')} onChange={(e) => onChange({ ...col, header: e.target.value.replace(/ ⏎ /g, '\n') })} aria-label="عنوان العمود" />
-      <Select
-        className="col-span-5 sm:col-span-3"
-        value={isField ? `field:${col.field}` : 'value'}
-        onChange={(e) => onChange(e.target.value === 'value' ? { header: col.header, value: '' } : { header: col.header, field: e.target.value.slice(6) as ExportFieldKey })}
-        aria-label="المصدر"
-      >
-        <option value="value">قيمة ثابتة</option>
-        {(Object.keys(EXPORT_FIELDS) as ExportFieldKey[]).map((k) => <option key={k} value={`field:${k}`}>{EXPORT_FIELDS[k].label}</option>)}
-      </Select>
-      <Input className="col-span-4 sm:col-span-2" dir="ltr" disabled={isField} value={isField ? '' : String(col.value)} onChange={(e) => !isField && onChange({ header: col.header, value: e.target.value })} aria-label="القيمة" />
-      <div className="col-span-3 flex justify-end sm:col-span-2">
-        <IconButton label="أعلى" icon={<ArrowUp className="size-3.5" />} onClick={() => onMove(-1)} />
-        <IconButton label="أسفل" icon={<ArrowDown className="size-3.5" />} onClick={() => onMove(1)} />
-        <IconButton label="حذف" className="hover:text-danger" icon={<Trash2 className="size-3.5" />} onClick={onRemove} />
-      </div>
-    </div>
-  );
-}
+const DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+const fmtDelay = (m: number) => (m % 1440 === 0 ? `${m / 1440} يوم` : m % 60 === 0 ? `${m / 60} سا` : `${m} د`);
+const parseDelay = (s: string) => {
+  const n = parseFloat(s);
+  if (!n) return null;
+  if (/يوم|d/i.test(s)) return Math.round(n * 1440);
+  if (/سا|h/i.test(s)) return Math.round(n * 60);
+  return Math.round(n);
+};
 
 export function SettingsTab() {
   const { form, setForm, save } = useSettingsForm();
   if (!form) return <PageLoader />;
-  const cols = form.exportColumns;
-  const setCols = (exportColumns: ExportColumn[]) => setForm({ ...form, exportColumns });
-  const move = (i: number, d: -1 | 1) => {
-    const j = i + d;
-    if (j < 0 || j >= cols.length) return;
-    const next = [...cols];
-    [next[i], next[j]] = [next[j]!, next[i]!];
-    setCols(next);
-  };
+  const p = form.callPolicy;
+  const setPolicy = (patch: Partial<Settings['callPolicy']>) => setForm({ ...form, callPolicy: { ...p, ...patch } });
 
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader title="التعليقات السريعة" />
-        <div className="p-4">
-          <TagInput value={form.quickComments} onChange={(quickComments) => setForm({ ...form, quickComments })} placeholder="أضف تعليقاً ثم Enter" />
+        <CardHeader title="سياسة الاتصال" />
+        <div className="space-y-4 p-4">
+          <p className="text-sm text-muted">بعد «لم يرد» تُبرمج المحاولة التالية تلقائياً داخل أوقات العمل فقط (لا اتصال في الليل). نفس القواعد سيستعملها وكيل الاتصال الآلي لاحقاً.</p>
+          <div className="grid gap-3 sm:grid-cols-4">
+            <Field label="بداية العمل">{(id) => <Input id={id} type="time" value={p.workStart} onChange={(e) => setPolicy({ workStart: e.target.value })} />}</Field>
+            <Field label="نهاية العمل">{(id) => <Input id={id} type="time" value={p.workEnd} onChange={(e) => setPolicy({ workEnd: e.target.value })} />}</Field>
+            <Field label="عدد المحاولات">{(id) => <Input id={id} type="number" min={1} max={10} value={p.maxAttempts} onChange={(e) => setPolicy({ maxAttempts: Number(e.target.value) })} />}</Field>
+          </div>
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-muted">أيام العمل</p>
+            <div className="flex flex-wrap gap-1.5">
+              {DAYS.map((d, i) => {
+                const on = p.workDays.includes(i);
+                return (
+                  <button key={d} onClick={() => setPolicy({ workDays: on ? p.workDays.filter((x) => x !== i) : [...p.workDays, i].sort() })} className={cn('rounded-full border px-3 py-1 text-xs font-medium', on ? 'border-primary bg-primary-soft text-primary' : 'border-line text-muted')}>
+                    {d}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <Field label="الانتظار قبل كل محاولة جديدة" hint="مثلاً: 60 (دقيقة)، 3 سا، 1 يوم — بالترتيب، والأخير يتكرر">
+            {() => <TagInput value={p.retryDelays.map(fmtDelay)} onChange={(v) => setPolicy({ retryDelays: v.map(parseDelay).filter((n): n is number => n !== null) })} />}
+          </Field>
+          <Switch checked={p.autoCancelAfterMax} onChange={(v) => setPolicy({ autoCancelAfterMax: v })} label="إلغاء تلقائي بعد آخر محاولة بدون رد" />
         </div>
       </Card>
+
       <Card>
-        <CardHeader
-          title="أعمدة ملف شركة التوصيل"
-          action={<Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={() => setCols(DEFAULT_EXPORT_COLUMNS)}>القالب الأصلي</Button>}
-        />
-        <div className="p-4">
-          <p className="mb-2 text-sm text-muted">مطابقة لقالب الاستيراد الخاص بـ Yalidine. غيّرها فقط إذا غيرت الشركة قالبها.</p>
-          <Field label="الصيغة" className="mb-3 w-40">
+        <CardHeader title="توزيع الطلبيات والتكرار" />
+        <div className="grid gap-4 p-4 sm:grid-cols-2">
+          <Field label="توزيع الطلبيات الجديدة" hint="متوازن: كل طلبية جديدة تُسند للموظف الذي عنده أقل طلبيات مفتوحة">
             {(id) => (
-              <Select id={id} value={form.exportFormat} onChange={(e) => setForm({ ...form, exportFormat: e.target.value as 'xlsx' | 'csv' })}>
-                <option value="xlsx">Excel (xlsx)</option>
-                <option value="csv">CSV</option>
+              <Select id={id} value={form.assignment} onChange={(e) => setForm({ ...form, assignment: e.target.value as Settings['assignment'] })}>
+                <option value="manual">يدوي (أول من يأخذها)</option>
+                <option value="balanced">متوازن بين الموظفين</option>
               </Select>
             )}
           </Field>
-          <div className="divide-y divide-line">
-            {cols.map((col, i) => (
-              <ColumnRow
-                key={i}
-                col={col}
-                onChange={(c) => setCols(cols.map((x, k) => (k === i ? c : x)))}
-                onMove={(d) => move(i, d)}
-                onRemove={() => setCols(cols.filter((_, k) => k !== i))}
-              />
-            ))}
-          </div>
-          <Button size="sm" className="mt-2" icon={<Plus className="size-3.5" />} onClick={() => setCols([...cols, { header: 'new', value: '' }])}>عمود</Button>
+          <Field label="كشف الطلب المكرر خلال (أيام)" hint="نفس الهاتف وعنده طلبية مفتوحة — 0 لإيقافه">
+            {(id) => <Input id={id} type="number" min={0} max={30} value={form.duplicateWindowDays} onChange={(e) => setForm({ ...form, duplicateWindowDays: Number(e.target.value) })} />}
+          </Field>
         </div>
+      </Card>
+
+      <Card>
+        <CardHeader title="التعليقات السريعة" />
+        <div className="p-4"><TagInput value={form.quickComments} onChange={(quickComments) => setForm({ ...form, quickComments })} placeholder="أضف تعليقاً ثم Enter" /></div>
+      </Card>
+      <Card>
+        <CardHeader title="أسباب الإلغاء" />
+        <div className="p-4"><TagInput value={form.cancelReasons} onChange={(cancelReasons) => setForm({ ...form, cancelReasons })} placeholder="أضف سبباً ثم Enter" /></div>
       </Card>
       <Button variant="primary" loading={save.isPending} onClick={() => save.mutate(form)}>حفظ الإعدادات</Button>
     </div>

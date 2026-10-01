@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 import { orderListQuerySchema, type OrderListQuery } from '@touraya/shared';
 
-const FILTER_KEYS = ['q', 'status', 'productId', 'sourceId', 'wilayaCode', 'assignedTo', 'phoneIssue', 'from', 'to', 'sort', 'dir', 'page', 'pageSize'] as const;
+const FILTER_KEYS = ['q', 'status', 'offerId', 'sourceId', 'wilayaCode', 'assignedTo', 'problem', 'from', 'to', 'sort', 'dir', 'page', 'pageSize'] as const;
 
 /** Orders table state lives in the URL: shareable, survives refresh, back button works. */
 export function useOrderFilters(trash = false) {
@@ -39,7 +39,7 @@ export function useOrderFilters(trash = false) {
     });
 
   const { page: _p, pageSize: _ps, sort: _s, dir: _d, ...filter } = query;
-  const activeFilterCount = ['productId', 'sourceId', 'wilayaCode', 'assignedTo', 'phoneIssue', 'from', 'to'].filter((k) => params.get(k)).length;
+  const activeFilterCount = ['offerId', 'sourceId', 'wilayaCode', 'assignedTo', 'problem', 'from', 'to'].filter((k) => params.get(k)).length;
 
   return { query, filter, set, clear: () => setParams({}, { replace: true }), openOrderId, openOrder, activeFilterCount };
 }

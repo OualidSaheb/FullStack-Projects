@@ -2,17 +2,18 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, Copy, ExternalLink, KeyRound, Pencil, Plus, Settings, Sheet, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
-import type { SourceInput } from '@touraya/shared';
+import { SOURCE_TYPES, type SourceInput } from '@touraya/shared';
 import { api } from '@/lib/api';
 import { fmtDateTime, timeAgo } from '@/lib/format';
-import { qk, useAdminMutation, useProducts, useSources, type SourceWithStats } from '@/lib/queries';
+import { qk, useAdminMutation, useOffers, useSources, type SourceWithStats } from '@/lib/queries';
 import { Alert, Badge, Button, Card, EmptyState, Field, Input, Modal, PageLoader, Select, Switch, TagInput } from '@/components/ui';
 
-const DEFAULT_SOURCE: SourceInput = { name: '', spreadsheetId: '', formType: 'new', productId: null, sheetNames: ['Sheet1', 'Sheet2'], importFrom: '2026-09-27', fieldMap: {}, active: true };
+const DEFAULT_SOURCE: SourceInput = { name: '', type: 'google_sheet', spreadsheetId: '', formType: 'new', offerId: null, sheetNames: ['Sheet1', 'Sheet2'], importFrom: '2026-09-27', fieldMap: {}, active: true };
 
 function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClose: () => void }) {
-  const { data: products } = useProducts();
+  const { data: offers } = useOffers();
   const [form, setForm] = useState<SourceInput>(() => (source ? { ...DEFAULT_SOURCE, ...source } : DEFAULT_SOURCE));
+  const sheet = form.type === 'google_sheet';
   const save = useAdminMutation(qk.sources, (v: SourceInput) => (source ? api.put(`/sources/${source.id}`, v) : api.post('/sources', v)));
   const set = <K extends keyof SourceInput>(k: K, v: SourceInput[K]) => setForm((f) => ({ ...f, [k]: v }));
   // Accept a full Google Sheets URL and keep only the id.
@@ -27,7 +28,14 @@ function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClo
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="اسم المصدر / العرض" className="sm:col-span-2">{(id) => <Input id={id} value={form.name} onChange={(e) => set('name', e.target.value)} />}</Field>
-        <Field label="رابط أو معرف Google Sheet" className="sm:col-span-2">{(id) => <Input id={id} dir="ltr" value={form.spreadsheetId} onChange={(e) => setSheetId(e.target.value)} />}</Field>
+        <Field label="نوع المصدر" className="sm:col-span-2">
+          {(id) => (
+            <Select id={id} value={form.type} onChange={(e) => set('type', e.target.value as SourceInput['type'])}>
+              {Object.entries(SOURCE_TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </Select>
+          )}
+        </Field>
+        {sheet && <Field label="رابط أو معرف Google Sheet" className="sm:col-span-2">{(id) => <Input id={id} dir="ltr" value={form.spreadsheetId} onChange={(e) => setSheetId(e.target.value)} />}</Field>}
         <Field label="نوع الفورم">
           {(id) => (
             <Select id={id} value={form.formType} onChange={(e) => set('formType', e.target.value as 'new' | 'legacy')}>
@@ -38,13 +46,13 @@ function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClo
         </Field>
         <Field label="العرض الافتراضي" hint="يستعمل إذا لم يُعرف العرض من اسم الفورم">
           {(id) => (
-            <Select id={id} value={form.productId ?? ''} onChange={(e) => set('productId', e.target.value ? Number(e.target.value) : null)}>
+            <Select id={id} value={form.offerId ?? ''} onChange={(e) => set('offerId', e.target.value ? Number(e.target.value) : null)}>
               <option value="">—</option>
-              {products?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {offers?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </Select>
           )}
         </Field>
-        <Field label="الأوراق (Tabs) المقروءة" hint="اكتب الاسم ثم Enter">{() => <TagInput value={form.sheetNames} onChange={(v) => set('sheetNames', v)} />}</Field>
+        {sheet && <Field label="الأوراق (Tabs) المقروءة" hint="اكتب الاسم ثم Enter">{() => <TagInput value={form.sheetNames} onChange={(v) => set('sheetNames', v)} />}</Field>}
         <Field label="الاستيراد ابتداءً من">{(id) => <Input id={id} type="date" value={form.importFrom} onChange={(e) => set('importFrom', e.target.value)} />}</Field>
         <Switch checked={form.active} onChange={(v) => set('active', v)} label="مفعل (يستقبل الطلبيات)" />
       </div>
@@ -79,6 +87,35 @@ function SetupModal({ source, onClose }: { source: SourceWithStats; onClose: () 
   );
 }
 
+function WebhookModal({ source, onClose }: { source: SourceWithStats; onClose: () => void }) {
+  const { data } = useQuery({ queryKey: ['endpoint', source.id], queryFn: () => api.get<{ url: string }>(`/sources/${source.id}/endpoint`) });
+  const example = `fetch('${data?.url ?? '…'}', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    id: 'ORDER-123',            // معرف فريد (يمنع التكرار)
+    name: 'Karim Benali',
+    phone: '0556251779',
+    wilaya: 'Alger',            // أو 16 أو الجزائر
+    commune: 'Bab Ezzouar',
+    offer: 'pants 2pcs 3500',   // اسم العرض
+    size: '42',
+    colors: 'أسود رمادي'
+  })
+})`;
+  return (
+    <Modal open onClose={onClose} size="lg" title={`رابط الاستقبال — ${source.name}`}>
+      <div className="space-y-3 text-sm">
+        <p>أرسل الطلبيات بـ <b>POST</b> (JSON) إلى هذا الرابط من موقعك، أو من Make / Zapier / Shopify / WooCommerce. نفس المعالجة ومنع التكرار مثل Google Sheets.</p>
+        <Input readOnly dir="ltr" value={data?.url ?? ''} onFocus={(e) => e.target.select()} />
+        <Button icon={<Copy className="size-4" />} onClick={() => data && navigator.clipboard.writeText(data.url).then(() => toast.success('تم النسخ'))}>نسخ الرابط</Button>
+        <pre className="overflow-auto rounded-lg bg-ink p-4 text-xs leading-relaxed text-slate-200" dir="ltr">{example}</pre>
+        <p className="text-muted">أسماء الحقول قابلة للتغيير من «أسئلة الفورم».</p>
+      </div>
+    </Modal>
+  );
+}
+
 function SyncStatus({ source }: { source: SourceWithStats }) {
   const s = source.lastSyncStats;
   if (!source.lastSyncAt || !s) return <Badge tone="warn">لم يتصل بعد</Badge>;
@@ -97,7 +134,8 @@ function SyncStatus({ source }: { source: SourceWithStats }) {
 
 export function SourcesTab() {
   const { data: sources, isLoading } = useSources();
-  const { data: products } = useProducts();
+  const { data: offers } = useOffers();
+  const [hook, setHook] = useState<SourceWithStats | null>(null);
   const [editing, setEditing] = useState<SourceWithStats | null | 'new'>(null);
   const [setup, setSetup] = useState<SourceWithStats | null>(null);
   if (isLoading) return <PageLoader />;
@@ -105,7 +143,7 @@ export function SourcesTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted">كل ملف Google Sheet (عرض) يرسل طلبياته عبر Apps Script. يقرأ Sheet1 و Sheet2 ولا يكرر أي طلبية (Facebook Lead ID).</p>
+        <p className="text-sm text-muted">من أين تأتي الطلبيات: ملفات Google Sheets (Facebook Lead Ads عبر Apps Script) أو رابط Webhook لأي موقع أو أداة. لا تكرار أبداً (Lead ID).</p>
         <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>مصدر جديد</Button>
       </div>
       {!sources?.length ? (
@@ -121,14 +159,14 @@ export function SourcesTab() {
                     <Badge tone={s.formType === 'new' ? 'primary' : 'neutral'}>{s.formType === 'new' ? 'فورم جديد' : 'فورم قديم'}</Badge>
                     {!s.active && <Badge tone="danger">متوقف</Badge>}
                   </div>
-                  <p className="ltr mt-1 truncate text-start text-xs text-faint">{s.spreadsheetId}</p>
+                  {s.type === 'google_sheet' && <p className="ltr mt-1 truncate text-right text-xs text-faint">{s.spreadsheetId}</p>}
                   <p className="mt-1 text-xs text-muted">
-                    {products?.find((p) => p.id === s.productId)?.name ?? 'بدون عرض افتراضي'} · {s.sheetNames.join(' + ')} · من {s.importFrom} · <b>{s.orderCount}</b> طلبية
+                    {offers?.find((o) => o.id === s.offerId)?.name ?? 'بدون عرض افتراضي'} · {s.type === 'google_sheet' ? s.sheetNames.join(' + ') : 'Webhook'} · من {s.importFrom} · <b>{s.orderCount}</b> طلبية
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-1">
                   <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => setEditing(s)}>تعديل</Button>
-                  <Button size="sm" variant="primary" icon={<Settings className="size-3.5" />} onClick={() => setSetup(s)}>إعداد الاستقبال</Button>
+                  <Button size="sm" variant="primary" icon={<Settings className="size-3.5" />} onClick={() => (s.type === 'webhook' ? setHook(s) : setSetup(s))}>إعداد الاستقبال</Button>
                 </div>
               </div>
               <div className="mt-3 border-t border-line pt-3"><SyncStatus source={s} /></div>
@@ -138,6 +176,7 @@ export function SourcesTab() {
       )}
       {editing && <SourceForm source={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {setup && <SetupModal source={setup} onClose={() => setSetup(null)} />}
+      {hook && <WebhookModal source={hook} onClose={() => setHook(null)} />}
     </div>
   );
 }

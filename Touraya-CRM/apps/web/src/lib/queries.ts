@@ -2,7 +2,10 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { toast } from 'sonner';
 import type {
   BulkAction,
+  CarrierDTO,
+  CarrierRateDTO,
   CommentDTO,
+  OfferDTO,
   ExportBatchDTO,
   OrderDetail,
   OrderEventDTO,
@@ -19,6 +22,7 @@ import type {
   StatsDTO,
   StatusChange,
   StatusCounts,
+  StockMovementDTO,
   UserDTO,
 } from '@touraya/shared';
 import { api, ApiError } from './api';
@@ -31,10 +35,7 @@ export interface Me {
   permissions: Permission[];
 }
 
-export type PublicSettings = Settings & { yalidine: Settings['yalidine'] & { hasApiToken: boolean } };
-export type SourceWithStats = SourceDTO & {
-  lastSyncStats: { at: string; received: number; created: number; duplicates: number; skipped: number; errors: { row: number; sheet: string; message: string }[] } | null;
-};
+export type SourceWithStats = SourceDTO;
 
 /** Central query keys: invalidating ['orders'] refreshes lists, counts and details together. */
 export const qk = {
@@ -45,6 +46,11 @@ export const qk = {
   order: (id: string) => ['orders', 'detail', id] as const,
   timeline: (id: string) => ['orders', 'timeline', id] as const,
   products: ['products'] as const,
+  offers: ['offers'] as const,
+  carriers: ['carriers'] as const,
+  rates: (carrierId: number) => ['carriers', carrierId, 'rates'] as const,
+  movements: ['movements'] as const,
+  customer: (id: number) => ['customer', id] as const,
   users: ['users'] as const,
   sources: ['sources'] as const,
   settings: ['settings'] as const,
@@ -79,10 +85,15 @@ export const useTimeline = (id: string | null) =>
     enabled: Boolean(id),
   });
 
-export const useProducts = () => useQuery({ queryKey: qk.products, queryFn: () => api.get<ProductDTO[]>('/products'), staleTime: 60_000 });
+export const useProducts = () => useQuery({ queryKey: qk.products, queryFn: () => api.get<ProductDTO[]>('/products'), staleTime: 30_000 });
+export const useOffers = () => useQuery({ queryKey: qk.offers, queryFn: () => api.get<OfferDTO[]>('/offers'), staleTime: 60_000 });
+export const useCarriers = () => useQuery({ queryKey: qk.carriers, queryFn: () => api.get<CarrierDTO[]>('/carriers'), staleTime: 60_000 });
+export const useRates = (carrierId: number | undefined) =>
+  useQuery({ queryKey: qk.rates(carrierId ?? 0), queryFn: () => api.get<CarrierRateDTO[]>(`/carriers/${carrierId}/rates`), enabled: Boolean(carrierId) });
+export const useMovements = () => useQuery({ queryKey: qk.movements, queryFn: () => api.get<StockMovementDTO[]>('/inventory/movements') });
 export const useUsers = () => useQuery({ queryKey: qk.users, queryFn: () => api.get<UserDTO[]>('/users'), staleTime: 60_000 });
 export const useSources = () => useQuery({ queryKey: qk.sources, queryFn: () => api.get<SourceWithStats[]>('/sources') });
-export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: () => api.get<PublicSettings>('/settings'), staleTime: 60_000 });
+export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: () => api.get<Settings>('/settings'), staleTime: 60_000 });
 export const useBatches = () => useQuery({ queryKey: qk.batches, queryFn: () => api.get<ExportBatchDTO[]>('/shipping/exports') });
 export const useStats = (f: OrderFilter) => useQuery({ queryKey: qk.stats(f), queryFn: () => api.get<StatsDTO>('/stats', f as never), placeholderData: keepPreviousData });
 
@@ -93,6 +104,7 @@ function useOrderMutation<V, R>(fn: (v: V) => Promise<R>, success?: string) {
     mutationFn: fn,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.orders });
+      qc.invalidateQueries({ queryKey: qk.products });
       qc.invalidateQueries({ queryKey: ['stats'] });
       if (success) toast.success(success);
     },
@@ -104,6 +116,8 @@ export const useChangeStatus = (id: string) => useOrderMutation((v: StatusChange
 export const useUpdateOrder = (id: string) => useOrderMutation((v: OrderUpdate) => api.patch<OrderDetail>(`/orders/${id}`, v), 'تم حفظ التعديلات');
 export const useAddComment = (id: string) => useOrderMutation((body: string) => api.post(`/orders/${id}/comments`, { body }));
 export const useBulkAction = () => useOrderMutation((v: BulkAction) => api.post<{ affected: number }>('/orders/bulk', v));
+export const useReceiveReturn = (id: string) =>
+  useOrderMutation((v: { condition: 'restock' | 'damaged'; note?: string }) => api.post<OrderDetail>(`/orders/${id}/return-received`, v), 'تم تسجيل المرتجع');
 export const useDeleteByFilter = () =>
   useOrderMutation((v: { filter: OrderFilter; confirmCount: number }) => api.post<{ affected: number }>('/orders/delete-by-filter', v));
 

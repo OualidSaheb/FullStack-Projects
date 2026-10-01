@@ -9,7 +9,7 @@ import { Button, Card, CardHeader, Spinner, Textarea } from '@/components/ui';
 
 const FIELD_LABELS: Record<string, string> = {
   customerName: 'الاسم', phone: 'الهاتف', phoneAlt: 'هاتف احتياطي', wilayaCode: 'الولاية', communeName: 'البلدية', address: 'العنوان',
-  productId: 'العرض', quantity: 'الكمية', price: 'السعر', size: 'المقاس', colors: 'الألوان',
+  offerId: 'العرض', price: 'السعر', items: 'القطع', deliveryType: 'نوع التوصيل', stopdeskId: 'مكتب Stop desk', carrierId: 'شركة التوصيل',
 };
 
 const show = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : String(v));
@@ -30,7 +30,9 @@ function EventLine({ e, userName }: { e: OrderEventDTO; userName: (id: unknown) 
           {isOrderStatus(d.from) && <StatusBadge status={d.from} short />}
           <ArrowLeft className="size-3 text-faint" />
           {isOrderStatus(d.to) && <StatusBadge status={d.to} short />}
-          {d.via === 'yalidine' && <span className="text-xs text-faint">عبر Yalidine</span>}
+          {typeof d.via === 'string' && <span className="text-xs text-faint">عبر {d.via}</span>}
+          {typeof d.reason === 'string' && <span className="text-xs text-muted">السبب: {d.reason}</span>}
+          {d.condition === 'damaged' && <span className="text-xs text-danger">تالف</span>}
         </span>
       );
       break;
