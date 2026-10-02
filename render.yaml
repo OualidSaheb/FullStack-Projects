@@ -1,0 +1,23 @@
+# One-click test deployment of Touraya CRM on Render (free plan).
+# Render → New → Blueprint → pick this repository. See Touraya-CRM/docs/DEPLOY.md.
+services:
+  - type: web
+    name: touraya-crm
+    runtime: docker
+    rootDir: Touraya-CRM
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL # Neon / Supabase connection string (free Postgres)
+        sync: false
+      - key: PUBLIC_URL # e.g. https://touraya-crm.onrender.com
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: APP_SECRET
+        generateValue: true

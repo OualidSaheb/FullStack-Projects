@@ -1,0 +1,44 @@
+import type { FastifyPluginAsync } from 'fastify';
+import { asc, eq } from 'drizzle-orm';
+import { z } from 'zod';
+import { offerSchema, productSchema } from '@touraya/shared';
+import { offers } from '../../db/schema';
+import { notFound } from '../../lib/errors';
+import { listProducts, saveProduct, toOfferDTO } from './service';
+
+const idParams = z.object({ id: z.coerce.number().int() });
+
+export const catalogRoutes: FastifyPluginAsync = async (app) => {
+  const manage = { preHandler: app.requirePermission('products.manage') };
+
+  app.get('/products', { preHandler: app.requireAuth }, async () => listProducts(app.db));
+
+  app.post('/products', manage, async (req) => {
+    await app.db.transaction((tx) => saveProduct(tx, productSchema.parse(req.body)));
+    return listProducts(app.db);
+  });
+
+  app.put('/products/:id', manage, async (req) => {
+    const { id } = idParams.parse(req.params);
+    const row = await app.db.transaction((tx) => saveProduct(tx, productSchema.parse(req.body), id));
+    if (!row) throw notFound();
+    return listProducts(app.db);
+  });
+
+  app.get('/offers', { preHandler: app.requireAuth }, async () =>
+    (await app.db.select().from(offers).orderBy(asc(offers.id))).map(toOfferDTO),
+  );
+
+  app.post('/offers', manage, async (req) => {
+    const [o] = await app.db.insert(offers).values(offerSchema.parse(req.body)).returning();
+    return toOfferDTO(o!);
+  });
+
+  app.put('/offers/:id', manage, async (req) => {
+    const { id } = idParams.parse(req.params);
+    const [o] = await app.db.update(offers).set({ ...offerSchema.parse(req.body), updatedAt: new Date() }).where(eq(offers.id, id)).returning();
+    if (!o) throw notFound();
+    return toOfferDTO(o);
+  });
+  // Products and offers are deactivated rather than deleted so past orders keep their data.
+};

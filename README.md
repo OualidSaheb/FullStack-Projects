@@ -42,6 +42,19 @@ Each project below includes a description, screenshot placeholder, and link.
 
 ---
 
+## 📦 6. **Touraya CRM — Cash-on-Delivery Platform (Algeria)**
+**Tech:** TypeScript, React 19, Tailwind CSS 4, TanStack Query/Table, Fastify, Drizzle ORM, PostgreSQL, Google Apps Script, Vitest
+
+**Description:**
+A mobile-first COD order platform: orders arrive from Facebook Lead Ads (Google Sheets + Apps Script) or any website/webhook, deduplicated by lead ID, with phone normalisation, Algerian wilaya/commune matching and duplicate/risky-customer detection. Agents work in a call mode (locked queue, retries scheduled inside working hours, one-tap outcomes). Includes a catalog of products, size/color variants and quantity offers, a stock ledger with returns, multi-carrier shipping (Yalidine adapter, per-wilaya delivery prices, reviewed Excel export, API and webhooks), statistics and role-based access. Arabic RTL UI with light/dark themes.
+
+📸 **Screenshot:**
+![Touraya CRM](./Touraya-CRM/docs/orders.png)
+
+🔗 **Project Link:**  [Here](./Touraya-CRM)
+
+---
+
 ## 🏢 5. **Retroaction — Internship Project**  
 **Tech:** Vue.js, Sass, Bootstrap 5, Axios, Pinia  
 **Team workflow:**  

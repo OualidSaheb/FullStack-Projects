@@ -1,0 +1,1 @@
+ALTER TABLE "sources" ADD COLUMN "sync_minutes" integer DEFAULT 5 NOT NULL;
