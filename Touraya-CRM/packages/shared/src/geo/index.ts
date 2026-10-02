@@ -1,5 +1,5 @@
 import data from './algeria.json';
-import { looseKey, similarity } from '../text';
+import { looseKey, normalizeText, similarity } from '../text';
 
 export interface Commune {
   name: string; // official carrier name (Yalidine "nom officiel")
@@ -118,4 +118,48 @@ function bestFuzzy<T>(items: T[], key: string, keysOf: (t: T) => string[], thres
     }
   }
   return best;
+}
+
+/**
+ * Finds a wilaya and/or commune mentioned anywhere in free text
+ * ("حي 20 أوت بوفاريك البليدة", "Bab Ezzouar, Alger"). Exact names only
+ * (1–3 word phrases), so house numbers and random words are not mistaken.
+ */
+export function extractLocation(text: unknown): { wilaya?: Wilaya; commune?: Commune & { wilayaCode: number } } {
+  const words = normalizeText(text).split(' ').filter((w) => w && !/^\d+$/.test(w));
+  const phrases: string[] = [];
+  for (let size = 3; size >= 1; size--) for (let i = 0; i + size <= words.length; i++) phrases.push(looseKey(words.slice(i, i + size).join(' ')));
+
+  let wilaya: Wilaya | undefined;
+  for (const p of phrases) {
+    const code = wilayaIndex.get(p);
+    if (code) {
+      wilaya = byCode.get(code);
+      break;
+    }
+  }
+  const scope = wilaya ? [wilaya] : WILAYAS;
+  for (const p of phrases) {
+    const hits = scope.flatMap((w) => w.communes.filter((c) => communeKeys(c).includes(p)).map((c) => ({ ...c, wilayaCode: w.code })));
+    // Without a wilaya, a commune name shared by two wilayas is ambiguous: skip it.
+    if (hits.length === 1 || (wilaya && hits.length)) return { wilaya: wilaya ?? byCode.get(hits[0]!.wilayaCode), commune: hits[0] };
+  }
+  return { wilaya };
+}
+
+/**
+ * Delivery location of a lead: wilaya and commune from their own answers,
+ * completed from the address (or from each other) when a form has no
+ * separate question or the customer typed everything in one field.
+ */
+export function resolveLocation(values: { wilaya?: string; commune?: string; address?: string }): { wilayaCode: number | null; communeName: string | null } {
+  let wilaya = matchWilaya(values.wilaya)?.value;
+  let commune = values.commune ? matchCommune(values.commune, wilaya?.code)?.value ?? (wilaya ? undefined : matchCommune(values.commune)?.value) : undefined;
+  for (const text of [values.address, values.commune, values.wilaya]) {
+    if ((wilaya && commune) || !text) continue;
+    const found = extractLocation(text);
+    if (!wilaya && found.wilaya && (!commune || commune.wilayaCode === found.wilaya.code)) wilaya = found.wilaya;
+    if (!commune && found.commune && (!wilaya || found.commune.wilayaCode === wilaya.code)) commune = found.commune;
+  }
+  return { wilayaCode: wilaya?.code ?? commune?.wilayaCode ?? null, communeName: commune?.name ?? null };
 }

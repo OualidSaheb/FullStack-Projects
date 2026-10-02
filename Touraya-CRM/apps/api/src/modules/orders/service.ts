@@ -49,7 +49,6 @@ export async function getOrderDetail(ctx: AppContext, id: string): Promise<Order
     phoneCustomer: orders.phoneCustomer,
     phoneFacebook: orders.phoneFacebook,
     phoneAlt: orders.phoneAlt,
-    wilayaRaw: orders.wilayaRaw,
     address: orders.address,
     offerRaw: orders.offerRaw,
     stopdeskId: orders.stopdeskId,
@@ -63,7 +62,7 @@ export async function getOrderDetail(ctx: AppContext, id: string): Promise<Order
   }).where(eq(orders.id, id));
   if (!row) throw notFound('الطلبية غير موجودة');
 
-  const { leadId, phoneCustomer, phoneFacebook, phoneAlt, wilayaRaw, address, offerRaw, stopdeskId, carrierTracking, carrierStatus, raw, sheetName, sheetRow, customerId, blacklistReason, ...list } = row;
+  const { leadId, phoneCustomer, phoneFacebook, phoneAlt, address, offerRaw, stopdeskId, carrierTracking, carrierStatus, raw, sheetName, sheetRow, customerId, blacklistReason, ...list } = row;
   const base = toListItem(list, ctx.config.ORDER_PREFIX);
 
   const [items, fee, carrier, duplicate] = await Promise.all([
@@ -85,7 +84,7 @@ export async function getOrderDetail(ctx: AppContext, id: string): Promise<Order
 
   return {
     ...base,
-    leadId, phoneCustomer, phoneFacebook, phoneAlt, wilayaRaw, address, offerRaw, stopdeskId, carrierTracking, carrierStatus, raw, sheetName, sheetRow,
+    leadId, phoneCustomer, phoneFacebook, phoneAlt, address, offerRaw, stopdeskId, carrierTracking, carrierStatus, raw, sheetName, sheetRow,
     carrierName: carrier?.name ?? null,
     deliveryFee: fee,
     items: detailItems,
@@ -212,6 +211,18 @@ export async function updateOrder(ctx: AppContext, id: string, input: OrderUpdat
 
 export async function bulkAction(ctx: AppContext, action: BulkAction, user: SessionUser) {
   const { ids } = action;
+  if (action.action === 'offer') {
+    // One transaction per order (same path as a manual edit); shipped orders are left untouched.
+    assertCan(user, 'orders.edit');
+    let affected = 0;
+    for (const id of ids) {
+      const order = await loadOrder(ctx.db, id);
+      if (order.stockOut || order.deletedAt || order.offerId === action.offerId) continue;
+      await updateOrder(ctx, id, { offerId: action.offerId }, user);
+      affected++;
+    }
+    return { affected };
+  }
   const now = new Date();
   const statusEvents: (StatusEvent | null)[] = [];
   const result = await ctx.db.transaction(async (tx) => {

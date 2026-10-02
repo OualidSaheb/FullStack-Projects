@@ -317,3 +317,76 @@ describe('admin', () => {
     expect((await find('Client 104')).flags).toContain('blacklisted');
   });
 });
+
+describe('fixes from the first real use', () => {
+  it('the source offer wins over ad / campaign names (the 2pcs vs 3pcs bug)', async () => {
+    // Legacy-form source configured for "pants 3pcs 4999", but the ad is named after the 2pcs offer.
+    const res = await ingest('Sheet1', [lead('200', { full_name: 'Client 200', form_name: 'old form', campaign_name: 'pants offer 2 - 3500', ad_name: 'pants 2pcs' })]);
+    expect(res.json().created).toBe(1);
+    expect(await find('Client 200')).toMatchObject({ offerName: 'pants 3pcs 4999', price: 4999 });
+  });
+
+  it('an offer chosen by the customer in the form still wins', async () => {
+    await ingest('Sheet1', [lead('201', { full_name: 'Client 201', 'العرض': 'suit white - 6500' })]);
+    expect(await find('Client 201')).toMatchObject({ offerName: 'suit white - 6500', price: 6500 });
+  });
+
+  it('finds wilaya and commune inside a free-text address (legacy forms)', async () => {
+    const { 'الولاية': _w, 'البلدية': _c, ...rest } = lead('202', { full_name: 'Client 202' });
+    await ingest('Sheet1', [{ ...rest, 'العنوان': 'حي 20 أوت بوفاريك البليدة' }]);
+    expect(await find('Client 202')).toMatchObject({ wilayaCode: 9, communeName: 'Boufarik' });
+  });
+
+  it('bulk "change offer" fixes orders that came in with the wrong offer', async () => {
+    const offers = (await api('GET', '/offers')).json();
+    const two = offers.find((o: { name: string }) => o.name === 'pants 2pcs 3500');
+    const order = await find('Client 200');
+    expect((await api('POST', '/orders/bulk', { action: 'offer', ids: [order.id], offerId: two.id })).json().affected).toBe(1);
+    expect(await find('Client 200')).toMatchObject({ offerName: 'pants 2pcs 3500', price: 3500, units: 2 });
+  });
+
+  it('reprocess fills empty fields after fixing the column mapping, never overwriting edits', async () => {
+    const { 'الولاية': _w, 'البلدية': _c, ...rest } = lead('203', { full_name: 'Client 203' });
+    await ingest('Sheet1', [{ ...rest, 'مكان التوصيل': 'Bab Ezzouar, Alger' }]);
+    expect(await find('Client 203')).toMatchObject({ wilayaCode: null, communeName: null });
+    // Admin maps the unknown column to "address", then reprocesses.
+    await api('PUT', `/sources/${source.id}`, { ...source, fieldMap: { address: ['مكان التوصيل'] } });
+    const res = (await api('POST', `/sources/${source.id}/reprocess`)).json();
+    expect(res.updated).toBeGreaterThanOrEqual(1);
+    expect(await find('Client 203')).toMatchObject({ wilayaCode: 16, communeName: 'Bab Ezzouar' });
+  });
+
+  it('removes a source: stops receiving, keeps its orders', async () => {
+    const created = (await api('POST', '/sources', { name: 'To remove', type: 'webhook', offerId: null, importFrom: '2026-01-01' })).json();
+    const { url } = (await api('GET', `/sources/${created.id}/endpoint`)).json();
+    await app.inject({ method: 'POST', url: new URL(url).pathname, payload: { id: 'rm-1', name: 'Removed source client', phone: '0770111222' } });
+    expect((await app.inject({ method: 'DELETE', url: `/api/sources/${created.id}`, headers: { cookie: adminCookie } })).json()).toEqual({ ok: true });
+    expect((await api('GET', '/sources')).json().some((s: { id: number }) => s.id === created.id)).toBe(false);
+    // The old link no longer accepts orders, the existing order stays.
+    expect((await app.inject({ method: 'POST', url: new URL(url).pathname, payload: { id: 'rm-2', name: 'x', phone: '0770111223' } })).statusCode).toBe(401);
+    expect((await find('Removed source client')).sourceName).toBe('To remove');
+  });
+
+  it('removes offers, products and employees without losing history', async () => {
+    const del = (url: string) => app.inject({ method: 'DELETE', url: `/api${url}`, headers: { cookie: adminCookie } });
+    const offers = (await api('GET', '/offers')).json();
+    const suit = offers.find((o: { name: string }) => o.name === 'suit white - 6500');
+    expect((await del(`/offers/${suit.id}`)).statusCode).toBe(200);
+    expect((await api('GET', '/offers')).json().some((o: { id: number }) => o.id === suit.id)).toBe(false);
+    expect((await find('Client 201')).offerName).toBe('suit white - 6500'); // past order keeps its offer
+
+    const product = (await api('GET', '/products')).json().find((p: { sku: string }) => p.sku === 'SUIT-W');
+    expect((await del(`/products/${product.id}`)).statusCode).toBe(200);
+    expect((await api('GET', '/products')).json().some((p: { id: number }) => p.id === product.id)).toBe(false);
+
+    const agent = (await api('GET', '/users')).json().find((u: { email: string }) => u.email === 'b@test.dz');
+    expect((await del(`/users/${agent.id}`)).statusCode).toBe(200);
+    expect((await api('GET', '/users')).json().some((u: { id: number }) => u.id === agent.id)).toBe(false);
+    expect((await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'b@test.dz', password: 'agent-pass' } })).statusCode).toBe(401);
+    // The same e-mail can be used again for a new account.
+    expect((await api('POST', '/users', { name: 'Agent B2', email: 'b@test.dz', password: 'agent-pass', role: 'agent' })).statusCode).toBe(200);
+    // An admin cannot remove themself.
+    const me = (await api('GET', '/auth/me')).json();
+    expect((await del(`/users/${me.id}`)).statusCode).toBe(400);
+  });
+});

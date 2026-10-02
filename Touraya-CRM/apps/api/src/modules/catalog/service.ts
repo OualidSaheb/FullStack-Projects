@@ -55,11 +55,11 @@ export function toVariantDTO(v: VariantRow, reserved: number): VariantDTO {
 
 export async function listProducts(db: DbOrTx): Promise<ProductDTO[]> {
   const [rows, allVariants, reserved] = await Promise.all([
-    db.select().from(products).orderBy(products.id),
+    db.select().from(products).where(isNull(products.deletedAt)).orderBy(products.id),
     db.select().from(variants).orderBy(variants.id),
     reservedByVariant(db),
   ]);
-  return rows.map(({ createdAt: _c, updatedAt: _u, ...p }) => ({
+  return rows.map(({ createdAt: _c, updatedAt: _u, deletedAt: _d, ...p }) => ({
     ...p,
     variants: allVariants.filter((v) => v.productId === p.id).map((v) => toVariantDTO(v, reserved.get(v.id) ?? 0)),
   }));
@@ -73,7 +73,7 @@ export async function saveProduct(db: DbOrTx, input: ProductInput, id?: number) 
   return row;
 }
 
-export const toOfferDTO = ({ createdAt: _c, updatedAt: _u, ...o }: typeof offers.$inferSelect): OfferDTO => o;
+export const toOfferDTO = ({ createdAt: _c, updatedAt: _u, deletedAt: _d, ...o }: typeof offers.$inferSelect): OfferDTO => o;
 
 /** Finds the variant of a product for a size/color pair (null when the pair is incomplete). */
 export async function findVariantIds(db: DbOrTx, items: { productId: number; size: string | null; color: string | null }[]) {

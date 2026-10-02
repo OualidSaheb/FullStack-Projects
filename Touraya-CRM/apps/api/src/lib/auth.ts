@@ -50,10 +50,10 @@ export const authPlugin = fp(async (app) => {
       throw new HttpError(401, 'يرجى تسجيل الدخول');
     }
     const [user] = await app.db
-      .select({ id: users.id, name: users.name, email: users.email, role: users.role, active: users.active })
+      .select({ id: users.id, name: users.name, email: users.email, role: users.role, active: users.active, deletedAt: users.deletedAt })
       .from(users)
       .where(eq(users.id, request.user.id));
-    if (!user?.active) throw new HttpError(401, 'الحساب غير مفعل');
+    if (!user?.active || user.deletedAt) throw new HttpError(401, 'الحساب غير مفعل');
     request.user = { id: user.id, name: user.name, email: user.email, role: user.role };
   }
 

@@ -24,6 +24,7 @@ export function MappingTab() {
     enabled: Boolean(source),
   });
   const save = useAdminMutation(qk.sources, () => api.put(`/sources/${source!.id}`, { ...source, fieldMap }));
+  const reprocess = useAdminMutation(qk.orders, () => api.post<{ checked: number; updated: number }>(`/sources/${source!.id}/reprocess`), 'تمت إعادة المعالجة');
 
   if (!sources) return <PageLoader />;
   if (!source) return <Card><EmptyState title="أضف مصدراً أولاً" /></Card>;
@@ -39,6 +40,14 @@ export function MappingTab() {
           )}
         </Field>
         <Button variant="primary" loading={save.isPending} onClick={() => save.mutate(undefined)}>حفظ المطابقة</Button>
+        <Button
+          loading={reprocess.isPending}
+          onClick={() => save.mutate(undefined, { onSuccess: () => reprocess.mutate(undefined) })}
+          title="بعد تصحيح الأعمدة: يكمل الحقول الفارغة في الطلبيات القديمة من بيانات الفورم الأصلية، بدون تغيير ما عدّله الموظفون"
+        >
+          حفظ + إعادة معالجة الطلبيات القديمة
+        </Button>
+        {reprocess.data && <span className="text-sm text-ok">تم تحديث {reprocess.data.updated} من {reprocess.data.checked} طلبية</span>}
       </div>
       <Alert tone="primary" icon={<Info className="mt-0.5 size-4 shrink-0" />}>
         الأعمدة المعروضة هي آخر أعمدة استقبلها النظام من هذا الملف. «تلقائي» يتعرف على الأسماء المعروفة (مثل رقمك_الخاص_للتواصل_معاك، phone_number، الولاية…).

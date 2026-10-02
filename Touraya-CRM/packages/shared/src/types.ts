@@ -124,6 +124,8 @@ export interface OrderListItem {
   wilayaCode: number | null;
   communeName: string | null;
   communeRaw: string | null;
+  /** What the customer typed for the wilaya (shown when it did not match). */
+  wilayaRaw: string | null;
   offerId: number | null;
   offerName: string | null;
   price: number;
@@ -155,7 +157,6 @@ export interface OrderDetail extends OrderListItem {
   phoneCustomer: string | null;
   phoneFacebook: string | null;
   phoneAlt: string | null;
-  wilayaRaw: string | null;
   address: string | null;
   offerRaw: string | null;
   stopdeskId: string | null;

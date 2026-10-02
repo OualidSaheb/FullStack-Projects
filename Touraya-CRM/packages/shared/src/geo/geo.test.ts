@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchCommune, matchWilaya, suggestCommunes, WILAYAS } from './index';
+import { matchCommune, matchWilaya, resolveLocation, suggestCommunes, WILAYAS } from './index';
 
 describe('geo', () => {
   it('has 58 wilayas and all communes', () => {
@@ -30,5 +30,21 @@ describe('geo', () => {
 
   it('suggests close communes', () => {
     expect(suggestCommunes('bab zouar', 16)[0]?.commune.name).toBe('Bab Ezzouar');
+  });
+});
+
+describe('location from free text', () => {
+  it.each([
+    [{ address: 'حي 20 أوت بوفاريك البليدة' }, 9, 'Boufarik'],
+    [{ address: 'Bab Ezzouar, Alger' }, 16, 'Bab Ezzouar'],
+    [{ wilaya: 'البليدة', address: 'بوفاريك وسط المدينة' }, 9, 'Boufarik'],
+    [{ commune: 'العلمة' }, 19, 'El Eulma'],
+    [{ wilaya: '16', commune: 'باب الزوار' }, 16, 'Bab Ezzouar'],
+  ])('%o → %i %s', (values, code, commune) => {
+    expect(resolveLocation(values)).toEqual({ wilayaCode: code, communeName: commune });
+  });
+
+  it('does not guess from numbers or unrelated words', () => {
+    expect(resolveLocation({ address: 'عمارة 16 الطابق 3' })).toEqual({ wilayaCode: null, communeName: null });
   });
 });

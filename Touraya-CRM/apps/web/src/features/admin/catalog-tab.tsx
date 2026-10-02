@@ -1,19 +1,40 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus } from 'lucide-react';
 import type { OfferDTO, OfferInput, ProductDTO, ProductInput } from '@touraya/shared';
 import { api } from '@/lib/api';
 import { fmtDA } from '@/lib/format';
 import { qk, useAdminMutation, useOffers, useProducts } from '@/lib/queries';
-import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, PageLoader, Select, Switch, TagInput } from '@/components/ui';
+import { Badge, Button, Card, CardHeader, ConfirmDelete, EmptyState, Field, Input, Modal, PageLoader, Select, Switch, TagInput } from '@/components/ui';
 
 const EMPTY_PRODUCT: ProductInput = { name: '', sku: '', sizes: [], colors: [], costPrice: 0, lowStockAlert: 3, active: true };
 
 function ProductForm({ product, onClose }: { product: ProductDTO | null; onClose: () => void }) {
   const [form, setForm] = useState<ProductInput>(product ?? EMPTY_PRODUCT);
   const save = useAdminMutation(qk.products, (v: ProductInput) => (product ? api.put(`/products/${product.id}`, v) : api.post('/products', v)));
+  const qc = useQueryClient();
+  const remove = useAdminMutation(qk.products, () => api.delete(`/products/${product!.id}`), 'تم حذف المنتج');
   const set = <K extends keyof ProductInput>(k: K, v: ProductInput[K]) => setForm((f) => ({ ...f, [k]: v }));
   return (
-    <Modal open onClose={onClose} title={product ? 'تعديل المنتج' : 'منتج جديد'} footer={<><Button variant="ghost" onClick={onClose}>إلغاء</Button><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(form, { onSuccess: onClose })}>حفظ</Button></>}>
+    <Modal
+      open
+      onClose={onClose}
+      title={product ? 'تعديل المنتج' : 'منتج جديد'}
+      footer={
+        <>
+          {product && (
+            <span className="me-auto">
+              <ConfirmDelete title={`حذف المنتج «${product.name}»`} loading={remove.isPending} onConfirm={() => remove.mutate(undefined, { onSuccess: () => { qc.invalidateQueries({ queryKey: qk.offers }); onClose(); } })}>
+                <p>يختفي المنتج وكل عروضه من القوائم ومن الطلبيات الجديدة.</p>
+                <p>الطلبيات القديمة وسجل المخزون والإحصائيات تبقى كما هي.</p>
+              </ConfirmDelete>
+            </span>
+          )}
+          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate(form, { onSuccess: onClose })}>حفظ</Button>
+        </>
+      }
+    >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="اسم المنتج">{(id) => <Input id={id} value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="مثلاً: سروال كارغو" />}</Field>
         <Field label="المرجع (SKU)">{(id) => <Input id={id} dir="ltr" value={form.sku} onChange={(e) => set('sku', e.target.value)} />}</Field>
@@ -31,9 +52,28 @@ function OfferForm({ offer, products, onClose }: { offer: OfferDTO | Partial<Off
   const id = 'id' in offer ? offer.id : undefined;
   const [form, setForm] = useState<OfferInput>({ productId: products[0]?.id ?? 0, name: '', carrierName: '', units: 1, price: 0, aliases: [], active: true, ...offer });
   const save = useAdminMutation(qk.offers, (v: OfferInput) => (id ? api.put(`/offers/${id}`, v) : api.post('/offers', v)));
+  const remove = useAdminMutation(qk.offers, () => api.delete(`/offers/${id}`), 'تم حذف العرض');
   const set = <K extends keyof OfferInput>(k: K, v: OfferInput[K]) => setForm((f) => ({ ...f, [k]: v }));
   return (
-    <Modal open onClose={onClose} title={id ? 'تعديل العرض' : 'عرض جديد'} footer={<><Button variant="ghost" onClick={onClose}>إلغاء</Button><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(form, { onSuccess: onClose })}>حفظ</Button></>}>
+    <Modal
+      open
+      onClose={onClose}
+      title={id ? 'تعديل العرض' : 'عرض جديد'}
+      footer={
+        <>
+          {id && (
+            <span className="me-auto">
+              <ConfirmDelete title={`حذف العرض «${form.name}»`} loading={remove.isPending} onConfirm={() => remove.mutate(undefined, { onSuccess: onClose })}>
+                <p>لن تدخل طلبيات جديدة بهذا العرض، ويختفي من القوائم.</p>
+                <p>الطلبيات القديمة تحتفظ بالعرض وسعره. إذا كان مصدر يستعمله كعرض افتراضي، غيّره في «المصادر».</p>
+              </ConfirmDelete>
+            </span>
+          )}
+          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate(form, { onSuccess: onClose })}>حفظ</Button>
+        </>
+      }
+    >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="المنتج">
           {(fid) => (

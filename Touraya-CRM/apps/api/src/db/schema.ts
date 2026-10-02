@@ -24,6 +24,8 @@ export const users = pgTable('users', {
   role: text('role').$type<Role>().notNull(),
   active: boolean('active').notNull().default(true),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+  /** Removed employee: cannot log in, hidden from lists, name kept in the activity log. */
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -40,6 +42,7 @@ export const products = pgTable('products', {
   costPrice: integer('cost_price').notNull().default(0),
   lowStockAlert: integer('low_stock_alert').notNull().default(3),
   active: boolean('active').notNull().default(true),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -70,6 +73,7 @@ export const offers = pgTable('offers', {
   price: integer('price').notNull(),
   aliases: jsonb('aliases').$type<string[]>().notNull().default([]),
   active: boolean('active').notNull().default(true),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -139,6 +143,7 @@ export const sources = pgTable('sources', {
   lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
   lastHeaders: jsonb('last_headers').$type<string[]>().notNull().default([]),
   lastSyncStats: jsonb('last_sync_stats').$type<SyncStats | null>(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

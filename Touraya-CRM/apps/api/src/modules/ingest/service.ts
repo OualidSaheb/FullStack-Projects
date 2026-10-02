@@ -1,12 +1,11 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   humanizeAnswer,
-  matchCommune,
-  matchWilaya,
   normalizeText,
   parseLeadDate,
   parseLeadRow,
   QUEUE_STATUSES,
+  resolveLocation,
   resolvePhone,
   type IngestPayload,
   type LeadValues,
@@ -14,7 +13,7 @@ import {
 } from '@touraya/shared';
 import { startOfDay } from '../../context';
 import type { DbOrTx } from '../../db/client';
-import { offers, orders, sources, users, type SyncStats } from '../../db/schema';
+import { offers, orderItems, orders, sources, users, type SyncStats } from '../../db/schema';
 import { sha1 } from '../../lib/crypto';
 import { findRecentOpenOrder, upsertCustomer } from '../customers/service';
 import { logEvents } from '../orders/events';
@@ -35,17 +34,26 @@ export interface IngestOptions {
   actorId?: number | null;
 }
 
-/** Picks the offer whose name/alias best matches the lead text; falls back to the source's offer. */
+/**
+ * Which offer a lead is for, in this order:
+ * 1. the offer the customer picked in the form (an "offer" question), when it matches;
+ * 2. the source's default offer — each sheet/form normally sells one offer;
+ * 3. the form / campaign / ad names, only when the source has no default offer.
+ * (Ad and campaign names are often reused or copied, so they must never override the source.)
+ */
 export function matchOffer(values: LeadValues, catalog: Offer[], fallbackId: number | null): Offer | null {
-  const texts = [values.offer, values.formName, values.campaignName, values.adName].map(normalizeText).filter(Boolean);
-  let best: { offer: Offer; len: number } | null = null;
-  for (const offer of catalog) {
-    for (const key of [offer.name, offer.carrierName, ...offer.aliases].map(normalizeText)) {
-      if (key.length < 4) continue;
-      if (texts.some((t) => t === key || t.includes(key)) && (!best || key.length > best.len)) best = { offer, len: key.length };
+  const byText = (texts: (string | undefined)[]) => {
+    const normalized = texts.map(normalizeText).filter(Boolean);
+    let best: { offer: Offer; len: number } | null = null;
+    for (const offer of catalog) {
+      for (const key of [offer.name, offer.carrierName, ...offer.aliases].map(normalizeText)) {
+        if (key.length < 4) continue;
+        if (normalized.some((t) => t === key || t.includes(key)) && (!best || key.length > best.len)) best = { offer, len: key.length };
+      }
     }
-  }
-  return best?.offer ?? catalog.find((o) => o.id === fallbackId) ?? null;
+    return best?.offer ?? null;
+  };
+  return byText([values.offer]) ?? catalog.find((o) => o.id === fallbackId) ?? byText([values.formName, values.campaignName, values.adName]);
 }
 
 /** Stable identity for rows without a Facebook Lead ID — independent of the row number. */
@@ -141,9 +149,8 @@ async function createOrderFromLead(
 ): Promise<string | null> {
   const { source, values, settings } = input;
   const phone = resolvePhone(values.phoneCustomer, values.phoneFacebook);
-  const wilaya = matchWilaya(values.wilaya);
-  // Legacy forms sometimes carry the commune alone: infer the wilaya from it.
-  const commune = matchCommune(values.commune, wilaya?.value.code) ?? (wilaya ? null : matchCommune(values.commune));
+  // Own answers first, then the address (legacy forms often have one free-text location field).
+  const location = resolveLocation(values);
   const offer = matchOffer(values, input.catalog, source.offerId);
   const customerName = values.fullName ?? '';
   const size = humanizeAnswer(values.size) || null;
@@ -170,9 +177,9 @@ async function createOrderFromLead(
       phoneFacebook: phone.facebook.raw || null,
       phoneIssue: phone.issue,
       duplicateOfId,
-      wilayaCode: wilaya?.value.code ?? commune?.value.wilayaCode ?? null,
+      wilayaCode: location.wilayaCode,
       wilayaRaw: values.wilaya ?? null,
-      communeName: commune?.value.name ?? null,
+      communeName: location.communeName,
       communeRaw: values.commune ?? null,
       address: values.address ?? null,
       offerId: offer?.id ?? null,
@@ -196,3 +203,46 @@ async function createOrderFromLead(
   return created.id;
 }
 
+
+/**
+ * Re-reads the original form answers of a source's orders with the current
+ * column mapping (after fixing "أسئلة الفورم") and fills ONLY the fields that
+ * are still empty — anything an agent set or corrected is never overwritten.
+ * Orders whose goods already left the warehouse are skipped.
+ */
+export async function reprocessSource(db: DbOrTx, source: Source, actorId: number) {
+  const rows = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.sourceId, source.id), isNull(orders.deletedAt), eq(orders.stockOut, false)));
+  let updated = 0;
+  for (const order of rows) {
+    const { values } = parseLeadRow(order.raw, source.fieldMap);
+    const location = resolveLocation(values);
+    const size = humanizeAnswer(values.size) || null;
+    const colors = humanizeAnswer(values.colors) || null;
+    const candidate: Partial<typeof orders.$inferInsert> = {
+      customerName: order.customerName || values.fullName || '',
+      wilayaCode: order.wilayaCode ?? location.wilayaCode,
+      communeName: order.communeName ?? (order.wilayaCode && location.wilayaCode !== order.wilayaCode ? null : location.communeName),
+      wilayaRaw: order.wilayaRaw ?? values.wilaya ?? null,
+      communeRaw: order.communeRaw ?? values.commune ?? null,
+      address: order.address ?? values.address ?? null,
+      size: order.size ?? size,
+      colors: order.colors ?? colors,
+    };
+    const changes = Object.fromEntries(
+      Object.entries(candidate).filter(([k, v]) => v !== (order as Record<string, unknown>)[k]).map(([k, v]) => [k, [(order as Record<string, unknown>)[k], v]]),
+    );
+    if (!Object.keys(changes).length) continue;
+    await db.update(orders).set({ ...candidate, updatedAt: new Date() }).where(eq(orders.id, order.id));
+    // New size/color answers: re-draft pieces that were not identified yet.
+    if ((changes.size || changes.colors) && order.offerId) {
+      const items = await db.select({ variantId: orderItems.variantId }).from(orderItems).where(eq(orderItems.orderId, order.id));
+      if (items.every((i) => i.variantId === null)) await replaceItems(db, order.id, await draftOfferItems(db, order.offerId, { size: candidate.size, colors: candidate.colors }));
+    }
+    await logEvents(db, { orderId: order.id, type: 'updated', actorId, data: { changes, via: 'reprocess' } });
+    updated++;
+  }
+  return { checked: rows.length, updated };
+}

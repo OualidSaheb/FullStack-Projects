@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { offerSchema, productSchema } from '@touraya/shared';
-import { offers } from '../../db/schema';
+import { offers, products } from '../../db/schema';
 import { notFound } from '../../lib/errors';
 import { listProducts, saveProduct, toOfferDTO } from './service';
 
@@ -26,7 +26,7 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get('/offers', { preHandler: app.requireAuth }, async () =>
-    (await app.db.select().from(offers).orderBy(asc(offers.id))).map(toOfferDTO),
+    (await app.db.select().from(offers).where(isNull(offers.deletedAt)).orderBy(asc(offers.id))).map(toOfferDTO),
   );
 
   app.post('/offers', manage, async (req) => {
@@ -40,5 +40,32 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
     if (!o) throw notFound();
     return toOfferDTO(o);
   });
-  // Products and offers are deactivated rather than deleted so past orders keep their data.
+  /**
+   * Removing a product or an offer archives it: it disappears from the lists,
+   * forms and new orders, while past orders, stock history and statistics keep it.
+   */
+  app.delete('/offers/:id', manage, async (req) => {
+    const { id } = idParams.parse(req.params);
+    const [o] = await app.db
+      .update(offers)
+      .set({ deletedAt: new Date(), active: false })
+      .where(and(eq(offers.id, id), isNull(offers.deletedAt)))
+      .returning({ id: offers.id });
+    if (!o) throw notFound();
+    return { ok: true };
+  });
+
+  app.delete('/products/:id', manage, async (req) => {
+    const { id } = idParams.parse(req.params);
+    await app.db.transaction(async (tx) => {
+      const [p] = await tx
+        .update(products)
+        .set({ deletedAt: new Date(), active: false })
+        .where(and(eq(products.id, id), isNull(products.deletedAt)))
+        .returning({ id: products.id });
+      if (!p) throw notFound();
+      await tx.update(offers).set({ deletedAt: new Date(), active: false }).where(and(eq(offers.productId, id), isNull(offers.deletedAt)));
+    });
+    return { ok: true };
+  });
 };

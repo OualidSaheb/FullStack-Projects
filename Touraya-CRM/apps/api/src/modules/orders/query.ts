@@ -101,6 +101,7 @@ export const listSelection = {
   wilayaCode: orders.wilayaCode,
   communeName: orders.communeName,
   communeRaw: orders.communeRaw,
+  wilayaRaw: orders.wilayaRaw,
   offerId: orders.offerId,
   offerName: offers.name,
   price: orders.price,

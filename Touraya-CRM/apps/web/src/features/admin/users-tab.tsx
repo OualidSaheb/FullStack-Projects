@@ -4,7 +4,7 @@ import { ROLE_LABELS, ROLE_PERMISSIONS, ROLES, type Role, type UserDTO } from '@
 import { api } from '@/lib/api';
 import { fmtDateTime } from '@/lib/format';
 import { qk, useAdminMutation, useUsers } from '@/lib/queries';
-import { Badge, Button, Card, Field, Input, Modal, PageLoader, Select, Switch } from '@/components/ui';
+import { Badge, Button, Card, ConfirmDelete, Field, Input, Modal, PageLoader, Select, Switch } from '@/components/ui';
 
 const ROLE_HINTS: Record<Role, string> = {
   admin: 'كل شيء',
@@ -19,8 +19,28 @@ function UserForm({ user, onClose }: { user: UserDTO | null; onClose: () => void
     const body = { ...v, password: v.password || undefined };
     return user ? api.put(`/users/${user.id}`, body) : api.post('/users', body);
   });
+  const remove = useAdminMutation(qk.users, () => api.delete(`/users/${user!.id}`), 'تم حذف الموظف');
   return (
-    <Modal open onClose={onClose} title={user ? 'تعديل الموظف' : 'موظف جديد'} footer={<><Button variant="ghost" onClick={onClose}>إلغاء</Button><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(form, { onSuccess: onClose })}>حفظ</Button></>}>
+    <Modal
+      open
+      onClose={onClose}
+      title={user ? 'تعديل الموظف' : 'موظف جديد'}
+      footer={
+        <>
+          {user && (
+            <span className="me-auto">
+              <ConfirmDelete title={`حذف الموظف «${user.name}»`} loading={remove.isPending} onConfirm={() => remove.mutate(undefined, { onSuccess: onClose })}>
+                <p>لا يستطيع الدخول بعد الآن، ويختفي من القوائم.</p>
+                <p>طلبياته غير المؤكدة ترجع إلى طابور الاتصال المشترك. اسمه يبقى في سجل النشاط والإحصائيات.</p>
+                <p className="text-muted">لإيقافه مؤقتاً فقط، أطفئ «الحساب مفعل» بدل الحذف.</p>
+              </ConfirmDelete>
+            </span>
+          )}
+          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate(form, { onSuccess: onClose })}>حفظ</Button>
+        </>
+      }
+    >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="الاسم">{(id) => <Input id={id} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />}</Field>
         <Field label="البريد الإلكتروني">{(id) => <Input id={id} type="email" dir="ltr" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />}</Field>

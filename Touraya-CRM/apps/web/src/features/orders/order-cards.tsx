@@ -30,7 +30,7 @@ export function OrderCards({ rows, selected, onToggle, onOpen }: { rows: OrderLi
             </p>
             {o.itemsLabel && <p className="text-xs text-muted">{o.itemsLabel}</p>}
             <p className="flex items-center gap-1 text-xs text-muted">
-              {wilayaLabel(o.wilayaCode)} ·{' '}
+              {o.wilayaCode ? wilayaLabel(o.wilayaCode) : <span className="text-warn">{o.wilayaRaw || 'بدون ولاية'}</span>} ·{' '}
               {o.communeName ? communeLabel(o.communeName, o.wilayaCode) : <span className="inline-flex items-center gap-1 text-warn"><MapPinOff className="size-3" />{o.communeRaw ?? '—'}</span>}
             </p>
             {(o.flags.length > 0 || o.risk !== 'new') && (

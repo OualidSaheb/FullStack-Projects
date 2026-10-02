@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { fmtDateTime, timeAgo } from '@/lib/format';
 import { qk, useAdminMutation, useOffers, useSources, type SourceWithStats } from '@/lib/queries';
 import { isSourceStale } from '@/components/sync-alert';
-import { Alert, Badge, Button, Card, EmptyState, Field, Input, Modal, PageLoader, Select, Switch, TagInput } from '@/components/ui';
+import { Alert, Badge, Button, Card, ConfirmDelete, EmptyState, Field, Input, Modal, PageLoader, Select, Switch, TagInput } from '@/components/ui';
 
 const DEFAULT_SOURCE: SourceInput = { name: '', type: 'google_sheet', spreadsheetId: '', formType: 'new', offerId: null, sheetNames: ['Sheet1', 'Sheet2'], importFrom: '2026-09-27', syncMinutes: 5, fieldMap: {}, active: true };
 
@@ -16,6 +16,7 @@ function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClo
   const [form, setForm] = useState<SourceInput>(() => (source ? { ...DEFAULT_SOURCE, ...source } : DEFAULT_SOURCE));
   const sheet = form.type === 'google_sheet';
   const save = useAdminMutation(qk.sources, (v: SourceInput) => (source ? api.put(`/sources/${source.id}`, v) : api.post('/sources', v)));
+  const remove = useAdminMutation(qk.sources, () => api.delete(`/sources/${source!.id}`), 'تم حذف المصدر');
   const set = <K extends keyof SourceInput>(k: K, v: SourceInput[K]) => setForm((f) => ({ ...f, [k]: v }));
   // Accept a full Google Sheets URL and keep only the id.
   const setSheetId = (value: string) => set('spreadsheetId', /\/d\/([\w-]+)/.exec(value)?.[1] ?? value.trim());
@@ -25,7 +26,21 @@ function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClo
       open
       onClose={onClose}
       title={source ? 'تعديل المصدر' : 'مصدر جديد'}
-      footer={<><Button variant="ghost" onClick={onClose}>إلغاء</Button><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(form, { onSuccess: onClose })}>حفظ</Button></>}
+      footer={
+        <>
+          {source && (
+            <span className="me-auto">
+              <ConfirmDelete title={`حذف المصدر «${source.name}»`} loading={remove.isPending} onConfirm={() => remove.mutate(undefined, { onSuccess: onClose })}>
+                <p>يتوقف استقبال الطلبيات من هذا المصدر فوراً (يُلغى مفتاح السكريبت).</p>
+                <p>الطلبيات التي دخلت منه تبقى كما هي في المنصة وفي الإحصائيات.</p>
+                <p className="text-muted">يمكنك بعد ذلك حذف Apps Script من الشيت (Extensions → Apps Script).</p>
+              </ConfirmDelete>
+            </span>
+          )}
+          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate(form, { onSuccess: onClose })}>حفظ</Button>
+        </>
+      }
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="اسم المصدر / العرض" className="sm:col-span-2">{(id) => <Input id={id} value={form.name} onChange={(e) => set('name', e.target.value)} />}</Field>

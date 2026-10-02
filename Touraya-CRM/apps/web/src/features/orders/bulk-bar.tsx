@@ -3,13 +3,14 @@ import { FileSpreadsheet, Trash2, UserPlus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { ORDER_STATUSES, STATUS_META, type OrderStatus } from '@touraya/shared';
 import { useCan } from '@/lib/auth';
-import { useBulkAction, useUsers } from '@/lib/queries';
+import { useBulkAction, useOffers, useUsers } from '@/lib/queries';
 import { Button, IconButton, Select } from '@/components/ui';
 
 export function BulkBar({ ids, trash, onClear, onExport }: { ids: string[]; trash: boolean; onClear: () => void; onExport: () => void }) {
   const can = useCan();
   const bulk = useBulkAction();
   const { data: users } = useUsers();
+  const { data: offers } = useOffers();
   const [assignTo, setAssignTo] = useState('');
   const run = (action: Parameters<typeof bulk.mutate>[0], msg: string) =>
     bulk.mutate(action, { onSuccess: (r) => { toast.success(`${msg} (${r.affected})`); onClear(); } });
@@ -49,6 +50,18 @@ export function BulkBar({ ids, trash, onClear, onExport }: { ids: string[]; tras
                 إسناد
               </Button>
             </div>
+          )}
+          {can('orders.edit') && (
+            <Select
+              className="h-8 w-auto text-xs"
+              value=""
+              onChange={(e) => e.target.value && run({ action: 'offer', ids, offerId: Number(e.target.value) }, 'تم تغيير العرض والسعر')}
+              aria-label="تغيير العرض"
+              title="يعيد حساب السعر والقطع (الطلبيات التي خرجت من المخزن لا تتغير)"
+            >
+              <option value="">تغيير العرض…</option>
+              {offers?.filter((o) => o.active).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </Select>
           )}
           {can('shipping.export') && (
             <Button size="sm" variant="primary" icon={<FileSpreadsheet className="size-3.5" />} onClick={onExport}>

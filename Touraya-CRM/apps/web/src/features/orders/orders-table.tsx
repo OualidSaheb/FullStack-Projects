@@ -57,7 +57,7 @@ const columns: ColumnDef<OrderListItem>[] = [
     header: 'التوصيل',
     cell: ({ row: { original: o } }) => (
       <div className="min-w-28 leading-tight">
-        <p>{wilayaLabel(o.wilayaCode)}</p>
+        <p className={o.wilayaCode ? undefined : 'text-warn'}>{o.wilayaCode ? wilayaLabel(o.wilayaCode) : o.wilayaRaw || 'بدون ولاية'}</p>
         {o.communeName ? (
           <p className="mt-0.5 text-xs text-muted">{communeLabel(o.communeName, o.wilayaCode)}</p>
         ) : (

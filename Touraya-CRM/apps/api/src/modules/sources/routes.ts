@@ -1,11 +1,11 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
-import { asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { fieldMapSchema, ingestSchema, resolveHeaders, sourceSchema, type SourceDTO } from '@touraya/shared';
 import { orders, sources } from '../../db/schema';
 import { randomToken } from '../../lib/crypto';
 import { notFound } from '../../lib/errors';
-import { ingestRows } from '../ingest/service';
+import { ingestRows, reprocessSource } from '../ingest/service';
 import { renderAppsScript } from './apps-script';
 
 const idParams = z.object({ id: z.coerce.number().int() });
@@ -13,7 +13,7 @@ const idParams = z.object({ id: z.coerce.number().int() });
 type SourceRow = typeof sources.$inferSelect;
 
 function toDTO(s: SourceRow, orderCount = 0): SourceDTO {
-  const { token: _token, createdAt: _c, updatedAt: _u, lastSyncAt, ...rest } = s;
+  const { token: _token, createdAt: _c, updatedAt: _u, deletedAt: _d, lastSyncAt, ...rest } = s;
   return { ...rest, lastSyncAt: lastSyncAt?.toISOString() ?? null, orderCount };
 }
 
@@ -25,14 +25,14 @@ export const sourceRoutes: FastifyPluginAsync = async (app) => {
   const manage = { preHandler: app.requirePermission('sources.manage') };
 
   async function load(id: number) {
-    const [s] = await app.db.select().from(sources).where(eq(sources.id, id));
+    const [s] = await app.db.select().from(sources).where(and(eq(sources.id, id), isNull(sources.deletedAt)));
     if (!s) throw notFound('المصدر غير موجود');
     return s;
   }
 
   app.get('/sources', { preHandler: app.requireAuth }, async () => {
     const [rows, counts] = await Promise.all([
-      app.db.select().from(sources).orderBy(asc(sources.id)),
+      app.db.select().from(sources).where(isNull(sources.deletedAt)).orderBy(asc(sources.id)),
       app.db
         .select({ sourceId: orders.sourceId, n: sql<number>`count(*)::int` })
         .from(orders)
@@ -57,10 +57,18 @@ export const sourceRoutes: FastifyPluginAsync = async (app) => {
     return toDTO(s);
   });
 
+  /**
+   * Removes a source: it stops receiving (the script's key is revoked at once)
+   * and disappears from the lists. Its orders and statistics are kept.
+   */
   app.delete('/sources/:id', manage, async (req) => {
     const { id } = idParams.parse(req.params);
-    // Orders keep their data; they just lose the link to the source.
-    await app.db.delete(sources).where(eq(sources.id, id));
+    const [s] = await app.db
+      .update(sources)
+      .set({ deletedAt: new Date(), active: false, token: randomToken() })
+      .where(and(eq(sources.id, id), isNull(sources.deletedAt)))
+      .returning({ id: sources.id });
+    if (!s) throw notFound();
     return { ok: true };
   });
 
@@ -97,6 +105,12 @@ export const sourceRoutes: FastifyPluginAsync = async (app) => {
     const body = z.object({ headers: z.array(z.string()).optional(), fieldMap: fieldMapSchema.optional() }).parse(req.body ?? {});
     const headers = body.headers ?? s.lastHeaders;
     return { headers, mapping: resolveHeaders(headers, body.fieldMap ?? s.fieldMap) };
+  });
+
+  /** After fixing the column mapping: fill the empty fields of existing orders from their original answers. */
+  app.post('/sources/:id/reprocess', manage, async (req) => {
+    const s = await load(idParams.parse(req.params).id);
+    return reprocessSource(app.db, s, req.user.id);
   });
 
   /** Legacy import: rows parsed from a CSV export of the sheet, same pipeline as the live sync. */

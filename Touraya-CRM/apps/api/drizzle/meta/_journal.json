@@ -15,6 +15,13 @@
       "when": 1790826605449,
       "tag": "0001_source_sync_minutes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790917913855,
+      "tag": "0002_soft_delete_config",
+      "breakpoints": true
     }
   ]
 }

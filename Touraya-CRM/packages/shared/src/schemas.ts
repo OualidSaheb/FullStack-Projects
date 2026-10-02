@@ -87,6 +87,8 @@ const ids = z.array(z.string().uuid()).min(1).max(1000);
 export const bulkActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('status'), ids, status: z.enum(ORDER_STATUSES), cancelReason: z.string().max(120).optional() }),
   z.object({ action: z.literal('assign'), ids, userId: z.number().int().nullable() }),
+  /** Fix orders that came in with the wrong offer: re-price and re-draft their pieces. */
+  z.object({ action: z.literal('offer'), ids, offerId: z.number().int().positive() }),
   z.object({ action: z.literal('delete'), ids }),
   z.object({ action: z.literal('restore'), ids }),
   z.object({ action: z.literal('purge'), ids }),
