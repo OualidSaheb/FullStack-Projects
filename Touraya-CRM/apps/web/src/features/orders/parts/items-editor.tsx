@@ -1,10 +1,9 @@
-import { useMemo, useState } from 'react';
-import { Minus, Plus, Sparkles } from 'lucide-react';
-import { unknownOptions, type OrderDetail, type OrderItemInput, type ProductDTO } from '@touraya/shared';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, Loader2, Minus, Plus, Sparkles, X } from 'lucide-react';
+import { combinationLabel, combineOffers, unknownOptions, type OrderDetail, type OrderItemInput, type ProductDTO } from '@touraya/shared';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
-import { fmtDA } from '@/lib/format';
-import { useAddProductOptions, useInlineUpdate, useProducts, useRedraft } from '@/lib/queries';
+import { useAddProductOptions, useInlineUpdate, useOffers, usePreviewOrder, useProducts, useRedraft } from '@/lib/queries';
 import { InlineSelect } from '@/components/inline';
 import { Alert, Button, Field, IconButton, Input, Modal } from '@/components/ui';
 
@@ -33,21 +32,46 @@ function NewOptionModal({ kind, product, onAdded, onClose }: { kind: 'size' | 'c
   );
 }
 
+/** Price of N pieces from the product's offers, worked out in the browser so it shows before the server answers. */
+export function useTierPrice(productId: number | undefined) {
+  const { data: offers } = useOffers();
+  return (units: number) => {
+    const tiers = (offers ?? []).filter((o) => o.productId === productId && o.active);
+    const combo = combineOffers(tiers, units);
+    return combo && { price: combo.price, label: combinationLabel(combo), offerId: combo.exactOfferId ?? combo.mainOfferId };
+  };
+}
+
+const SAVE_DELAY_MS = 450;
+
 /**
  * The pieces of an order, edited directly: number of pieces (price follows the
- * offers), one size for all or per piece, a color per piece (2 black + 1 green),
+ * product's prices by quantity), a size and a color per piece (2 black + 1 green),
  * stock shown for each choice, new sizes/colors added on the spot.
+ * Changes show at once; quick successive taps are saved together.
  */
 export function ItemsEditor({ order }: { order: OrderDetail }) {
   const can = useCan();
   const { data: products } = useProducts();
   const update = useInlineUpdate(order.id);
+  const preview = usePreviewOrder(order.id);
   const redraft = useRedraft(order.id);
   const addOptions = useAddProductOptions();
-  const [newOption, setNewOption] = useState<{ kind: 'size' | 'color'; index: number | 'all' } | null>(null);
+  const [newOption, setNewOption] = useState<{ kind: 'size' | 'color'; index: number } | null>(null);
+  const [state, setState] = useState<'idle' | 'waiting' | 'saved'>('idle');
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const items = toInput(order);
   const product = products?.find((p) => p.id === (items[0]?.productId ?? -1));
+  const tierPrice = useTierPrice(product?.id);
   const locked = !can('orders.edit') || Boolean(order.deletedAt) || ['ready_for_carrier', 'sent_to_carrier', 'carrier_received', 'delivered', 'returned', 'return_received'].includes(order.status);
+  // Closing the order before the delayed save fires still saves the last change.
+  const pending = useRef<OrderItemInput[] | null>(null);
+  const flushOnClose = useRef(() => {});
+  flushOnClose.current = () => pending.current && update.mutate({ items: pending.current });
+  useEffect(() => () => {
+    clearTimeout(timer.current);
+    flushOnClose.current();
+  }, []);
 
   const available = useMemo(() => {
     const map = new Map<string, number>();
@@ -56,20 +80,37 @@ export function ItemsEditor({ order }: { order: OrderDetail }) {
   }, [product]);
   const avail = (size: string | null, color: string | null) => available.get(`${size ?? ''}|${color ?? ''}`);
 
-  const save = (next: OrderItemInput[]) => update.mutate({ items: next });
+  const save = (next: OrderItemInput[]) => {
+    const unitsBefore = items.reduce((n, i) => n + i.quantity, 0);
+    const unitsAfter = next.reduce((n, i) => n + i.quantity, 0);
+    const tier = unitsAfter !== unitsBefore ? tierPrice(unitsAfter) : null;
+    preview((o) => ({
+      ...o,
+      units: unitsAfter,
+      items: next.map((it, k) => ({ ...(o.items[k] ?? o.items[o.items.length - 1]!), id: o.items[k]?.id ?? -k, ...it, variantId: null, available: avail(it.size, it.color) ?? null, returnCondition: null })),
+      ...(tier ? { price: tier.price, suggestedPrice: { price: tier.price, label: tier.label } } : {}),
+    }));
+    setState('waiting');
+    clearTimeout(timer.current);
+    pending.current = next;
+    timer.current = setTimeout(() => {
+      pending.current = null;
+      update.mutate({ items: next }, { onSuccess: () => setState('saved'), onError: () => setState('idle') });
+    }, SAVE_DELAY_MS);
+  };
   const setPiece = (i: number, patch: Partial<OrderItemInput>) => save(items.map((it, k) => (k === i ? { ...it, ...patch } : it)));
   const missing = product ? unknownOptions(order, product) : { sizes: [], colors: [] };
   const hasMissing = missing.sizes.length + missing.colors.length > 0;
   const units = items.reduce((n, i) => n + i.quantity, 0);
-  const commonSize = items.every((i) => i.size === items[0]?.size) ? items[0]?.size ?? null : null;
+  const saving = state === 'waiting' || update.isPending;
 
   if (!items.length || !product)
-    return <p className="text-sm text-faint">لا توجد قطع — اختر العرض أولاً</p>;
+    return <p className="text-sm text-faint">لا توجد قطع — اختر المنتج أولاً</p>;
 
   const sizeOptions = (current: string | null) => [
     ...product.sizes.map((s) => ({ value: s, label: s })),
     ...(current && !product.sizes.includes(current) ? [{ value: current, label: current }] : []),
-    ...(can('orders.edit') ? [{ value: NEW, label: '+ مقاس جديد…' }] : []),
+    ...(can('orders.edit') ? [{ value: NEW, label: '+ جديد…' }] : []),
   ];
   const colorOptions = (size: string | null, current: string | null) => [
     ...product.colors.map((c) => {
@@ -100,31 +141,20 @@ export function ItemsEditor({ order }: { order: OrderDetail }) {
       )}
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center rounded-lg border border-line">
-          <IconButton label="قطعة أقل" icon={<Minus className="size-4" />} disabled={locked || units <= 1 || update.isPending} onClick={() => save(items.slice(0, -1))} />
+        <div className="flex items-center rounded-xl border border-line bg-surface">
+          <IconButton label="قطعة أقل" icon={<Minus className="size-4" />} disabled={locked || units <= 1} onClick={() => save(items.slice(0, -1))} />
           <span className="min-w-16 text-center text-sm font-semibold">
             <span className="ltr">{units}</span> {units === 1 ? 'قطعة' : 'قطع'}
           </span>
-          <IconButton label="قطعة أخرى" icon={<Plus className="size-4" />} disabled={locked || update.isPending} onClick={() => save([...items, { ...items[items.length - 1]!, quantity: 1 }])} />
+          <IconButton label="قطعة أخرى" icon={<Plus className="size-4" />} disabled={locked} onClick={() => save([...items, { ...items[items.length - 1]!, quantity: 1 }])} />
         </div>
-        {product.sizes.length > 0 && items.length > 1 && (
-          <label className="flex items-center gap-2 text-xs text-muted">
-            المقاس للكل
-            <InlineSelect
-              disabled={locked}
-              value={commonSize}
-              placeholder="مختلف"
-              options={sizeOptions(commonSize)}
-              onSave={(v) => (v === NEW ? setNewOption({ kind: 'size', index: 'all' }) : save(items.map((it) => ({ ...it, size: v }))))}
-              aria-label="المقاس للكل"
-            />
-          </label>
-        )}
-        {order.suggestedPrice && order.suggestedPrice.price !== order.price && !locked && (
-          <Button size="sm" variant="ghost" onClick={() => update.mutate({ price: order.suggestedPrice!.price })} title={order.suggestedPrice.label}>
-            السعر حسب العروض: <span className="ltr">{fmtDA(order.suggestedPrice.price)}</span>
-          </Button>
-        )}
+        <span className="text-xs text-muted" aria-live="polite">
+          {saving ? (
+            <span className="inline-flex items-center gap-1"><Loader2 className="size-3.5 animate-spin" /> حفظ…</span>
+          ) : state === 'saved' ? (
+            <span className="inline-flex items-center gap-1 text-ok"><Check className="size-3.5" /> محفوظ</span>
+          ) : null}
+        </span>
       </div>
 
       <ol className="space-y-2">
@@ -133,11 +163,12 @@ export function ItemsEditor({ order }: { order: OrderDetail }) {
           const incomplete = (product.sizes.length && !item.size) || (product.colors.length && !item.color);
           const returned = order.items[i]?.returnCondition;
           return (
-            <li key={i} className={cn('flex flex-wrap items-center gap-2 rounded-lg border p-2', incomplete ? 'border-warn/50 bg-warn/5' : 'border-line')}>
+            <li key={i} className={cn('flex items-center gap-2 rounded-xl border p-2', incomplete ? 'border-warn/50 bg-warn/5' : 'border-line')}>
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-subtle text-xs font-semibold">{i + 1}</span>
               {product.sizes.length > 0 && (
                 <InlineSelect
                   disabled={locked}
+                  className="h-10 w-20 shrink-0 text-center"
                   value={item.size}
                   placeholder="المقاس"
                   tone={!item.size ? 'warn' : undefined}
@@ -149,7 +180,7 @@ export function ItemsEditor({ order }: { order: OrderDetail }) {
               {product.colors.length > 0 ? (
                 <InlineSelect
                   disabled={locked}
-                  className="min-w-0 flex-1"
+                  className="h-10 min-w-0 flex-1"
                   value={item.color}
                   placeholder="اللون"
                   tone={!item.color ? 'warn' : undefined}
@@ -171,7 +202,7 @@ export function ItemsEditor({ order }: { order: OrderDetail }) {
                   {a < 0 ? 'نفد' : a}
                 </span>
               )}
-              {!locked && items.length > 1 && <IconButton label="حذف القطعة" icon={<Minus className="size-4" />} onClick={() => save(items.filter((_, k) => k !== i))} />}
+              {!locked && items.length > 1 && <IconButton label="حذف القطعة" icon={<X className="size-4" />} onClick={() => save(items.filter((_, k) => k !== i))} />}
             </li>
           );
         })}
@@ -184,7 +215,7 @@ export function ItemsEditor({ order }: { order: OrderDetail }) {
           onClose={() => setNewOption(null)}
           onAdded={(v) => {
             const patch = newOption.kind === 'size' ? { size: v } : { color: v };
-            save(items.map((it, k) => (newOption.index === 'all' || k === newOption.index ? { ...it, ...patch } : it)));
+            save(items.map((it, k) => (k === newOption.index ? { ...it, ...patch } : it)));
           }}
         />
       )}

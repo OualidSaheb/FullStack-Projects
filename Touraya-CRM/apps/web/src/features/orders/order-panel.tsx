@@ -11,7 +11,7 @@ import {
   type OrderDetail,
 } from '@touraya/shared';
 import { fmtDA } from '@/lib/format';
-import { useInlineUpdate, useOffers } from '@/lib/queries';
+import { useInlineUpdate, useOffers, useProducts } from '@/lib/queries';
 import { InlineSelect, InlineText } from '@/components/inline';
 import { StatusBadge } from '@/components/status';
 import { useCan } from '@/lib/auth';
@@ -142,6 +142,48 @@ function LocationEditor({ order, disabled }: { order: OrderDetail; disabled: boo
 }
 
 /**
+ * The product of the order. The offer is not picked by hand: it follows the
+ * number of pieces. Choosing is only needed when the order came in without a
+ * known product (or to switch to another product).
+ */
+function ProductTitle({ order, editable }: { order: OrderDetail; editable: boolean }) {
+  const update = useInlineUpdate(order.id);
+  const { data: offers } = useOffers();
+  const { data: products } = useProducts();
+  const [changing, setChanging] = useState(false);
+  const name = order.items[0]?.productName ?? products?.find((p) => offers?.some((o) => o.id === order.offerId && o.productId === p.id))?.name;
+  if (name && !changing)
+    return (
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate">{name}</span>
+        {editable && <button className="shrink-0 text-xs font-normal text-primary hover:underline" onClick={() => setChanging(true)}>تغيير</button>}
+      </span>
+    );
+  if (!editable) return <>{order.offerName ?? order.offerRaw ?? 'بدون منتج'}</>;
+  // One entry per product (its 1-piece price, or its smallest offer); the piece count is set below.
+  const choices = (products ?? [])
+    .filter((p) => p.active)
+    .flatMap((p) => {
+      const first = (offers ?? []).filter((o) => o.productId === p.id && o.active).sort((a, b) => a.units - b.units)[0];
+      return first ? [{ value: first.id, label: `${p.name} — ${first.units} ${first.units === 1 ? 'قطعة' : 'قطع'} ${fmtDA(first.price)}` }] : [];
+    });
+  return (
+    <InlineSelect
+      value={null}
+      placeholder={order.offerRaw ? `«${order.offerRaw}» — اختر المنتج` : 'اختر المنتج'}
+      tone="warn"
+      className="max-w-full"
+      options={choices}
+      onSave={(v) => {
+        if (v) update.mutate({ offerId: v });
+        setChanging(false);
+      }}
+      aria-label="المنتج"
+    />
+  );
+}
+
+/**
  * Everything about an order, in the order an agent needs it during a call:
  * who → call → what they ordered (pieces, price + delivery) → where → notes.
  * Every value is edited in place (tap → change → saved); each change is logged.
@@ -150,7 +192,6 @@ function LocationEditor({ order, disabled }: { order: OrderDetail; disabled: boo
 export function OrderPanel({ order, onOpenOrder }: { order: OrderDetail; onOpenOrder?: (id: string) => void }) {
   const can = useCan();
   const update = useInlineUpdate(order.id);
-  const { data: offers } = useOffers();
   const editable = can('orders.edit') && !order.deletedAt;
   const shipped = ['ready_for_carrier', 'sent_to_carrier', 'carrier_received', 'delivered', 'returned', 'return_received'].includes(order.status);
 
@@ -193,37 +234,12 @@ export function OrderPanel({ order, onOpenOrder }: { order: OrderDetail; onOpenO
 
       <Card>
         <CardHeader
-          title={
-            editable && !shipped ? (
-              <InlineSelect
-                value={order.offerId}
-                placeholder={order.offerRaw ?? 'اختر العرض'}
-                tone={order.offerId ? undefined : 'warn'}
-                options={(offers ?? []).filter((o) => o.active || o.id === order.offerId).map((o) => ({ value: o.id, label: `${o.name} — ${fmtDA(o.price)}` }))}
-                onSave={(v) => v && update.mutate({ offerId: v })}
-                aria-label="العرض"
-              />
-            ) : (
-              order.offerName ?? order.offerRaw ?? 'بدون عرض'
-            )
-          }
+          title={<ProductTitle order={order} editable={editable && !shipped} />}
           icon={<Package className="size-4 text-muted" />}
-          action={
-            <span className="flex items-center gap-1 text-sm text-muted">
-              السعر
-              <InlineText
-                disabled={!editable || shipped}
-                dir="ltr"
-                inputMode="numeric"
-                value={String(order.price)}
-                display={<span className="ltr font-semibold text-fg">{fmtDA(order.price)}</span>}
-                onSave={(v) => Number.isFinite(Number(v)) && update.mutate({ price: Math.max(0, Math.round(Number(v))) })}
-              />
-            </span>
-          }
+          action={order.suggestedPrice && <span className="truncate rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary" title="العرض حسب عدد القطع">{order.suggestedPrice.label}</span>}
         />
         <div className="space-y-3 p-4">
-          <PriceSummary order={order} />
+          <PriceSummary order={order} onPrice={editable && !shipped ? (price) => update.mutate({ price }) : undefined} />
           {(order.size || order.colors) && (
             <p className="text-xs text-muted">
               طلب الزبون: {order.size && <b className="text-fg">المقاس {order.size}</b>} {order.colors && <>· الألوان <b className="text-fg">{order.colors}</b></>}

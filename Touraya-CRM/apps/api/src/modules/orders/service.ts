@@ -69,23 +69,26 @@ export async function getOrderDetail(ctx: AppContext, id: string): Promise<Order
   const { leadId, phoneCustomer, phoneFacebook, phoneAlt, address, offerRaw, stopdeskId, carrierTracking, carrierStatus, raw, sheetName, sheetRow, customerId, blacklistReason, relatedOrderId, ...list } = row;
   const base = toListItem(list, ctx.config.ORDER_PREFIX);
 
-  const [items, fee, carrier, duplicate] = await Promise.all([
+  // Every lookup that only needs the order runs together, then everything that needs its pieces:
+  // two round trips to the database instead of one per lookup.
+  const one = (id: string | null) =>
+    id ? ctx.db.select({ id: orders.id, number: orders.number, status: orders.status }).from(orders).where(eq(orders.id, id)).then((r) => r[0]) : undefined;
+  const [items, fee, carrier, duplicate, relatedRow] = await Promise.all([
     loadItems(ctx.db, [id]),
     deliveryFee(ctx.db, list.carrierId, list.wilayaCode, list.deliveryType),
     list.carrierId ? ctx.db.select({ name: carriers.name }).from(carriers).where(eq(carriers.id, list.carrierId)).then((r) => r[0]) : undefined,
-    list.duplicateOfId ? ctx.db.select({ id: orders.id, number: orders.number, status: orders.status }).from(orders).where(eq(orders.id, list.duplicateOfId)).then((r) => r[0]) : undefined,
+    one(list.duplicateOfId),
+    one(relatedOrderId),
   ]);
   const ref = (o?: { id: string; number: number; status: OrderStatus }) => (o ? { id: o.id, reference: formatReference(ctx.config.ORDER_PREFIX, o.number), status: o.status } : null);
-  const related = relatedOrderId
-    ? ref((await ctx.db.select({ id: orders.id, number: orders.number, status: orders.status }).from(orders).where(eq(orders.id, relatedOrderId)))[0])
-    : null;
   const units = items.reduce((n, i) => n + i.quantity, 0);
-  const combo = items[0] ? combineOffers(await productTiers(ctx.db, items[0].productId), units) : null;
   const variantIds = items.flatMap((i) => (i.variantId ? [i.variantId] : []));
-  const [reserved, stockRows] = await Promise.all([
-    reservedByVariant(ctx.db, variantIds),
+  const [tiers, reserved, stockRows] = await Promise.all([
+    items[0] ? productTiers(ctx.db, items[0].productId) : [],
+    variantIds.length ? reservedByVariant(ctx.db, variantIds) : new Map<number, number>(),
     variantIds.length ? ctx.db.select({ id: variants.id, stock: variants.stock }).from(variants).where(inArray(variants.id, variantIds)) : [],
   ]);
+  const combo = combineOffers(tiers, units);
   const detailItems = items.map((i) => {
     const stock = stockRows.find((v) => v.id === i.variantId)?.stock;
     return { ...i, size: opt(i.size), color: opt(i.color), available: stock === undefined ? null : stock - (reserved.get(i.variantId!) ?? 0) };
@@ -102,7 +105,7 @@ export async function getOrderDetail(ctx: AppContext, id: string): Promise<Order
       ? { id: customerId, blacklistReason, ...toHistory(list, Boolean(list.blacklisted)) }
       : null,
     duplicateOf: ref(duplicate),
-    related,
+    related: ref(relatedRow),
     suggestedPrice: combo ? { price: combo.price, label: combinationLabel(combo) } : null,
   };
 }
@@ -283,16 +286,16 @@ export async function updateOrder(ctx: AppContext, id: string, input: OrderUpdat
     const newItems = items ?? (offerChanged ? await draftOfferItems(tx, fields.offerId ?? null, order) : undefined);
     if (newItems) {
       if (order.stockOut) throw badRequest('لا يمكن تغيير القطع بعد خروجها من المخزن');
-      const before = await loadItems(tx, [id]);
+      const [before, tiers] = await Promise.all([loadItems(tx, [id]), newItems[0] ? productTiers(tx, newItems[0].productId) : []]);
       await replaceItems(tx, id, newItems);
-      const after = itemsLabel(await loadItems(tx, [id]));
+      const after = itemsLabel(newItems.map((i) => ({ size: i.size ?? '', color: i.color ?? '', quantity: i.quantity })));
       if (itemsLabel(before) !== after) changes.items = [itemsLabel(before), after];
       // Number of pieces changed by hand: price (and offer) follow the product's tiers
       // — 1 = 2100, 2 = 3500, 3 = 4999… — unless a price or an offer was set explicitly.
       const units = (rows: { quantity: number }[]) => rows.reduce((n, r) => n + r.quantity, 0);
       const productIds = new Set(newItems.map((i) => i.productId));
       if (items && fields.price === undefined && fields.offerId === undefined && productIds.size === 1 && units(newItems) !== units(before)) {
-        const combo = combineOffers(await productTiers(tx, newItems[0]!.productId), units(newItems));
+        const combo = combineOffers(tiers, units(newItems));
         if (combo) {
           next.price = combo.price;
           next.offerId = combo.exactOfferId ?? combo.mainOfferId;

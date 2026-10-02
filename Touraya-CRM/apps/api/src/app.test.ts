@@ -493,6 +493,32 @@ describe('pieces, price tiers, returns and live events', () => {
     expect(preview.rows[0].cells[preview.headers.indexOf('produit')]).toBe('2 × p 2pcs 3500');
   });
 
+  it('a product is saved with its price by quantity; the lines become its offers', async () => {
+    const created = (await api('POST', '/products', {
+      name: 'Shirt', sku: 'SHIRT', sizes: ['M'], colors: ['أبيض'],
+      tiers: [{ units: 1, price: 1500 }, { units: 2, price: 2800, name: 'shirt offer 2' }],
+    })).json();
+    const shirt = created.find((p: { sku: string }) => p.sku === 'SHIRT');
+    const tiersOf = async () => (await api('GET', '/offers')).json().filter((o: { productId: number }) => o.productId === shirt.id);
+    const first = await tiersOf();
+    expect(first.map((o: { units: number; price: number; carrierName: string; name: string }) => [o.units, o.price, o.carrierName, o.name])).toEqual([
+      [1, 1500, 's 1pc 1500', 'Shirt 1pc 1500'],
+      [2, 2800, 's 2pcs 2800', 'shirt offer 2'],
+    ]);
+    // Edit: new price for 2 (same offer kept), add 3, remove 1.
+    const two = first.find((o: { units: number }) => o.units === 2);
+    await api('PUT', `/products/${shirt.id}`, {
+      name: 'Shirt', sku: 'SHIRT', sizes: ['M'], colors: ['أبيض'],
+      tiers: [{ id: two.id, units: 2, price: 2700, name: two.name, carrierName: '' }, { units: 3, price: 3900 }],
+    });
+    const after = await tiersOf();
+    expect(after.map((o: { id: number; units: number; price: number }) => [o.units, o.price])).toEqual([[2, 2700], [3, 3900]]);
+    expect(after[0].id).toBe(two.id);
+    // Same quantity twice is refused.
+    const dup = await api('PUT', `/products/${shirt.id}`, { name: 'Shirt', tiers: [{ units: 2, price: 1 }, { units: 2, price: 2 }] });
+    expect(dup.statusCode).toBe(400);
+  });
+
   it('pushes new orders to open browsers (live notifications)', async () => {
     await app.listen({ port: 0, host: '127.0.0.1' });
     const { port } = app.server.address() as { port: number };

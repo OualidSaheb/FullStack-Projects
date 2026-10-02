@@ -124,8 +124,27 @@ export const productSchema = z.object({
   costPrice: z.number().int().min(0).default(0),
   lowStockAlert: z.number().int().min(0).default(3),
   active: z.boolean().default(true),
+  /**
+   * Price by number of pieces, saved with the product (1 = 2100, 2 = 3500, 3 = 4999).
+   * Each line is one of the product's offers; left out = offers untouched.
+   */
+  tiers: z
+    .array(
+      z.object({
+        id: z.number().int().positive().optional(),
+        units: z.number().int().min(1).max(50),
+        price: z.number().int().min(0),
+        /** Name in the Facebook form; empty = same as the carrier name. */
+        name: z.string().trim().max(120).default(''),
+        /** Coded name for the carrier; empty = generated ("p 2pcs 3500"). */
+        carrierName: z.string().trim().max(120).default(''),
+      }),
+    )
+    .refine((t) => new Set(t.map((x) => x.units)).size === t.length, 'كل كمية مرة واحدة فقط')
+    .optional(),
 });
 export type ProductInput = z.infer<typeof productSchema>;
+export type ProductTierInput = NonNullable<z.infer<typeof productSchema>['tiers']>[number];
 
 /** A sellable offer: N pieces of a product for a price (1 = 2000, 2 = 3500, 3 = 4999…). */
 export const offerSchema = z.object({

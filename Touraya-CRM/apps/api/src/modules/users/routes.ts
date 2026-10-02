@@ -44,6 +44,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       .where(eq(users.id, id))
       .returning();
     if (!u) throw notFound();
+    app.forgetUser(id);
     return toUserDTO(u);
   });
 
@@ -65,6 +66,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
         .set({ assignedToId: null, lockedById: null, lockedUntil: null })
         .where(and(eq(orders.assignedToId, id), inArray(orders.status, QUEUE_STATUSES)));
     });
+    app.forgetUser(id);
     return { ok: true };
   });
 };

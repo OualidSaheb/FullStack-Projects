@@ -29,17 +29,26 @@ declare module 'fastify' {
     requireAuth: preHandlerAsyncHookHandler;
     requirePermission: (permission: Permission) => preHandlerAsyncHookHandler;
     startSession: (reply: FastifyReply, userId: number) => Promise<void>;
+    forgetUser: (userId: number) => void;
   }
 }
 
+/**
+ * Signed-in users, kept a few seconds so a page that fires several requests
+ * does not read the same user row each time (each read is a trip to the database).
+ * Any change to a user (role, deactivation, removal) forgets them at once.
+ */
+const USER_TTL_MS = 30_000;
+
 export const authPlugin = fp(async (app) => {
+  const userCache = new Map<number, { user: SessionUser | null; at: number }>();
   const secure = app.config.NODE_ENV === 'production';
   await app.register(cookie);
   await app.register(jwt, {
     secret: app.config.APP_SECRET,
     cookie: { cookieName: SESSION_COOKIE, signed: false },
     sign: { expiresIn: `${SESSION_DAYS}d` },
-    // Re-read the user on every request so role changes / deactivation apply immediately.
+    // The user is re-read (cached briefly, forgotten on any change) so role changes / deactivation apply immediately.
     formatUser: (payload) => ({ id: payload.sub }) as unknown as SessionUser,
   });
 
@@ -49,15 +58,22 @@ export const authPlugin = fp(async (app) => {
     } catch {
       throw new HttpError(401, 'يرجى تسجيل الدخول');
     }
-    const [user] = await app.db
-      .select({ id: users.id, name: users.name, email: users.email, role: users.role, active: users.active, deletedAt: users.deletedAt })
-      .from(users)
-      .where(eq(users.id, request.user.id));
-    if (!user?.active || user.deletedAt) throw new HttpError(401, 'الحساب غير مفعل');
-    request.user = { id: user.id, name: user.name, email: user.email, role: user.role };
+    const id = request.user.id;
+    let cached = userCache.get(id);
+    if (!cached || Date.now() - cached.at > USER_TTL_MS) {
+      const [u] = await app.db
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role, active: users.active, deletedAt: users.deletedAt })
+        .from(users)
+        .where(eq(users.id, id));
+      cached = { user: u?.active && !u.deletedAt ? { id: u.id, name: u.name, email: u.email, role: u.role } : null, at: Date.now() };
+      userCache.set(id, cached);
+    }
+    if (!cached.user) throw new HttpError(401, 'الحساب غير مفعل');
+    request.user = { ...cached.user };
   }
 
   app.decorate('requireAuth', authenticate);
+  app.decorate('forgetUser', (userId: number) => void userCache.delete(userId));
   app.decorate('requirePermission', (permission: Permission) => async (request: FastifyRequest) => {
     await authenticate(request);
     if (!can(request.user.role, permission)) throw forbidden();

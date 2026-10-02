@@ -45,21 +45,23 @@ export function OutcomeBar({ order, onDone, showSelect = true, className }: { or
   const options = ORDER_STATUSES.filter((s) => STATUS_META[s].manual || can('orders.status.any'));
   const presets = postponePresets(new Date(), settings?.callPolicy ?? DEFAULT_CALL_POLICY);
   const big = 'h-12 flex-1 text-base sm:h-10 sm:flex-none sm:text-sm';
+  // Three side by side on a phone: one row instead of two.
+  const small = 'h-11 min-w-0 flex-1 px-2 text-sm sm:h-10 sm:flex-none sm:px-4';
 
   return (
     <div className={cn('space-y-2', className)}>
       {inQueue && (
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          <Button variant="success" className={cn(big, 'col-span-2')} icon={<BadgeCheck className="size-5" />} loading={pending === 'confirmed'} onClick={() => apply({ status: 'confirmed' })}>
+        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
+          <Button variant="success" className={cn(big, 'col-span-3')} icon={<BadgeCheck className="size-5" />} loading={pending === 'confirmed'} onClick={() => apply({ status: 'confirmed' })}>
             تأكيد الطلبية
           </Button>
-          <Button className={big} icon={<PhoneMissed className="size-5" style={{ color: STATUS_META[noAnswer].color }} />} loading={pending === noAnswer} onClick={() => apply({ status: noAnswer })}>
+          <Button className={small} icon={<PhoneMissed className="size-5" style={{ color: STATUS_META[noAnswer].color }} />} loading={pending === noAnswer} onClick={() => apply({ status: noAnswer })}>
             لم يرد
           </Button>
-          <Button className={big} icon={<Clock className="size-5 text-muted" />} onClick={() => setSheet('postpone')}>
+          <Button className={small} icon={<Clock className="size-5 text-muted" />} onClick={() => setSheet('postpone')}>
             لاحقاً
           </Button>
-          <Button variant="ghost" className={cn(big, 'col-span-2 text-danger sm:col-span-1')} icon={<Ban className="size-5" />} onClick={() => setSheet('cancel')}>
+          <Button variant="ghost" className={cn(small, 'text-danger')} icon={<Ban className="size-5" />} onClick={() => setSheet('cancel')}>
             إلغاء
           </Button>
         </div>

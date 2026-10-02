@@ -1,48 +1,109 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import type { OfferDTO, OfferInput, ProductDTO, ProductInput } from '@touraya/shared';
 import { api } from '@/lib/api';
 import { fmtDA } from '@/lib/format';
 import { qk, useAdminMutation, useOffers, useProducts } from '@/lib/queries';
-import { Badge, Button, Card, CardHeader, ConfirmDelete, EmptyState, Field, Input, Modal, PageLoader, Select, Switch, TagInput } from '@/components/ui';
+import { Badge, Button, Card, CardHeader, ConfirmDelete, EmptyState, Field, IconButton, Input, Modal, PageLoader, Select, Switch, TagInput } from '@/components/ui';
 
+type TierRow = { id?: number; units: number; price: number; name: string; carrierName: string; active?: boolean };
 const EMPTY_PRODUCT: ProductInput = { name: '', sku: '', sizes: [], colors: [], costPrice: 0, lowStockAlert: 3, active: true };
+const pcs = (n: number) => `${n}${n === 1 ? 'pc' : 'pcs'}`;
+/** Same rule as the server: "p 2pcs 3500" (first letter of the reference or name). */
+const autoCarrierName = (p: { name: string; sku: string }, t: TierRow) => `${(p.sku || p.name).trim().charAt(0).toLowerCase() || 'p'} ${pcs(t.units)} ${t.price}`;
 
-function ProductForm({ product, onClose }: { product: ProductDTO | null; onClose: () => void }) {
-  const [form, setForm] = useState<ProductInput>(product ?? EMPTY_PRODUCT);
-  const save = useAdminMutation(qk.products, (v: ProductInput) => (product ? api.put(`/products/${product.id}`, v) : api.post('/products', v)));
+/** Price by number of pieces: 1 = 2100, 2 = 3500, 3 = 4999… Any other count uses the cheapest mix. */
+function TiersEditor({ rows, onChange, product }: { rows: TierRow[]; onChange: (rows: TierRow[]) => void; product: { name: string; sku: string; costPrice: number } }) {
+  const set = (i: number, patch: Partial<TierRow>) => onChange(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  const duplicate = (u: number) => rows.filter((r) => r.units === u).length > 1;
+  return (
+    <div className="space-y-2">
+      {rows.map((r, i) => (
+        <div key={r.id ?? `n${i}`} className={`grid grid-cols-[5rem_1fr_auto] items-end gap-2 rounded-xl border p-2 sm:grid-cols-[5rem_8rem_1fr_1fr_auto] ${duplicate(r.units) ? 'border-danger/60' : 'border-line'}`}>
+          <Field label="القطع">{(id) => <Input id={id} type="number" min={1} max={50} value={r.units} onChange={(e) => set(i, { units: Number(e.target.value) })} />}</Field>
+          <Field label="السعر (دج)">
+            {(id) => <Input id={id} type="number" min={0} value={r.price || ''} onChange={(e) => set(i, { price: Number(e.target.value) })} placeholder="2100" />}
+          </Field>
+          <IconButton className="sm:order-1" label="حذف السطر" icon={<Trash2 className="size-4" />} disabled={rows.length === 1} onClick={() => onChange(rows.filter((_, k) => k !== i))} />
+          <Field label="الاسم المشفر (للطرد)" className="col-span-2 sm:col-span-1">
+            {(id) => <Input id={id} dir="ltr" value={r.carrierName} onChange={(e) => set(i, { carrierName: e.target.value })} placeholder={autoCarrierName(product, r)} />}
+          </Field>
+          <Field label="الاسم في الفورم" className="col-span-2 sm:col-span-1">
+            {(id) => <Input id={id} dir="ltr" value={r.name} onChange={(e) => set(i, { name: e.target.value })} placeholder={`${product.name || 'pants'} ${pcs(r.units)} ${r.price}`} />}
+          </Field>
+          {r.units > 0 && r.price > 0 && (
+            <p className="col-span-full text-xs text-muted sm:order-2">
+              <span className="ltr">{fmtDA(Math.round(r.price / r.units))}</span> للقطعة
+              {product.costPrice > 0 && <> · ربح تقريبي <span className="ltr text-ok">{fmtDA(r.price - product.costPrice * r.units)}</span></>}
+              {r.active === false && <span className="text-warn"> · هذا العرض متوقف (فعّله من قائمة العروض)</span>}
+            </p>
+          )}
+        </div>
+      ))}
+      <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => {
+        const last = rows[rows.length - 1];
+        onChange([...rows, { units: (last?.units ?? 0) + 1, price: 0, name: '', carrierName: '' }]);
+      }}>
+        كمية أخرى
+      </Button>
+    </div>
+  );
+}
+
+function ProductForm({ product, offers, onClose }: { product: ProductDTO | null; offers: OfferDTO[]; onClose: () => void }) {
+  const [form, setForm] = useState<ProductInput>(product ? { ...product } : EMPTY_PRODUCT);
+  const [tiers, setTiers] = useState<TierRow[]>(() => {
+    const own = offers.filter((o) => o.productId === product?.id).sort((a, b) => a.units - b.units);
+    return own.length ? own.map(({ id, units, price, name, carrierName, active }) => ({ id, units, price, name, carrierName, active })) : [{ units: 1, price: 0, name: '', carrierName: '' }];
+  });
   const qc = useQueryClient();
+  const save = useAdminMutation(qk.products, (v: ProductInput) => (product ? api.put(`/products/${product.id}`, v) : api.post('/products', v)));
   const remove = useAdminMutation(qk.products, () => api.delete(`/products/${product!.id}`), 'تم حذف المنتج');
   const set = <K extends keyof ProductInput>(k: K, v: ProductInput[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const valid = form.name.trim() && tiers.every((t) => t.units >= 1 && t.price > 0) && new Set(tiers.map((t) => t.units)).size === tiers.length;
+  const done = () => {
+    qc.invalidateQueries({ queryKey: qk.offers });
+    onClose();
+  };
   return (
     <Modal
       open
       onClose={onClose}
-      title={product ? 'تعديل المنتج' : 'منتج جديد'}
+      size="lg"
+      title={product ? `تعديل «${product.name}»` : 'منتج جديد'}
       footer={
         <>
           {product && (
             <span className="me-auto">
-              <ConfirmDelete title={`حذف المنتج «${product.name}»`} loading={remove.isPending} onConfirm={() => remove.mutate(undefined, { onSuccess: () => { qc.invalidateQueries({ queryKey: qk.offers }); onClose(); } })}>
-                <p>يختفي المنتج وكل عروضه من القوائم ومن الطلبيات الجديدة.</p>
+              <ConfirmDelete title={`حذف المنتج «${product.name}»`} loading={remove.isPending} onConfirm={() => remove.mutate(undefined, { onSuccess: done })}>
+                <p>يختفي المنتج وكل أسعاره من القوائم ومن الطلبيات الجديدة.</p>
                 <p>الطلبيات القديمة وسجل المخزون والإحصائيات تبقى كما هي.</p>
               </ConfirmDelete>
             </span>
           )}
           <Button variant="ghost" onClick={onClose}>إلغاء</Button>
-          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate(form, { onSuccess: onClose })}>حفظ</Button>
+          <Button variant="primary" loading={save.isPending} disabled={!valid} onClick={() => save.mutate({ ...form, tiers: tiers.map(({ active: _a, ...t }) => t) }, { onSuccess: done })}>حفظ</Button>
         </>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="اسم المنتج">{(id) => <Input id={id} value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="مثلاً: سروال كارغو" />}</Field>
-        <Field label="المرجع (SKU)">{(id) => <Input id={id} dir="ltr" value={form.sku} onChange={(e) => set('sku', e.target.value)} />}</Field>
-        <Field label="المقاسات" hint="Enter بعد كل مقاس — تُنشأ خانة مخزون لكل مقاس × لون" className="sm:col-span-2">{() => <TagInput value={form.sizes} onChange={(v) => set('sizes', v)} placeholder="38, 40, 42 / M, L, XL" />}</Field>
-        <Field label="الألوان" className="sm:col-span-2">{() => <TagInput value={form.colors} onChange={(v) => set('colors', v)} placeholder="أسود، رمادي…" />}</Field>
-        <Field label="سعر التكلفة للقطعة (دج)" hint="لحساب الربح">{(id) => <Input id={id} type="number" min={0} value={form.costPrice} onChange={(e) => set('costPrice', Number(e.target.value))} />}</Field>
-        <Field label="تنبيه نقص المخزون عند">{(id) => <Input id={id} type="number" min={0} value={form.lowStockAlert} onChange={(e) => set('lowStockAlert', Number(e.target.value))} />}</Field>
-        <Switch checked={form.active} onChange={(v) => set('active', v)} label="مفعل" />
+      <div className="space-y-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="اسم المنتج">{(id) => <Input id={id} autoFocus={!product} value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="مثلاً: سروال كارغو" />}</Field>
+          <Field label="المرجع (SKU)" hint="حرفه الأول يُستعمل في الاسم المشفر">{(id) => <Input id={id} dir="ltr" value={form.sku} onChange={(e) => set('sku', e.target.value)} placeholder="PANTS" />}</Field>
+        </div>
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold">السعر حسب الكمية</h3>
+          <p className="text-xs text-muted">في الطلبية يكفي تغيير عدد القطع: السعر والعرض يتغيران تلقائياً. كمية غير موجودة هنا تُحسب بأرخص مزيج (4 = 2 + 2).</p>
+          <TiersEditor rows={tiers} onChange={setTiers} product={{ name: form.name, sku: form.sku, costPrice: form.costPrice }} />
+        </section>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="المقاسات" hint="Enter بعد كل مقاس — تُنشأ خانة مخزون لكل مقاس × لون" className="sm:col-span-2">{() => <TagInput value={form.sizes} onChange={(v) => set('sizes', v)} placeholder="38, 40, 42 / M, L, XL" />}</Field>
+          <Field label="الألوان" className="sm:col-span-2">{() => <TagInput value={form.colors} onChange={(v) => set('colors', v)} placeholder="أسود، رمادي…" />}</Field>
+          <Field label="سعر التكلفة للقطعة (دج)" hint="لحساب الربح">{(id) => <Input id={id} type="number" min={0} value={form.costPrice} onChange={(e) => set('costPrice', Number(e.target.value))} />}</Field>
+          <Field label="تنبيه نقص المخزون عند">{(id) => <Input id={id} type="number" min={0} value={form.lowStockAlert} onChange={(e) => set('lowStockAlert', Number(e.target.value))} />}</Field>
+          <Switch checked={form.active} onChange={(v) => set('active', v)} label="مفعل" />
+        </div>
       </div>
     </Modal>
   );
@@ -107,21 +168,18 @@ export function CatalogTab() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted">المنتج = السلعة في المخزن (المقاسات والألوان). العرض = ما يُباع في الإعلان (عدد القطع والسعر). منتج واحد يمكن أن يكون له عدة عروض.</p>
+        <p className="max-w-2xl text-sm text-muted">كل منتج بمقاساته وألوانه وسعره حسب الكمية (1 قطعة، 2 قطع…). في الطلبيات يتغير السعر تلقائياً مع عدد القطع.</p>
         <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setProduct('new')}>منتج جديد</Button>
       </div>
       {!products?.length && <Card><EmptyState title="لا توجد منتجات" /></Card>}
       {products?.map((p) => {
-        const list = offers?.filter((o) => o.productId === p.id) ?? [];
+        const list = (offers?.filter((o) => o.productId === p.id) ?? []).sort((a, b) => a.units - b.units);
         return (
           <Card key={p.id}>
             <CardHeader
               title={<>{p.name} {!p.active && <Badge tone="danger">متوقف</Badge>}</>}
               action={
-                <div className="flex gap-1">
-                  <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => setProduct(p)}>تعديل</Button>
-                  <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setOffer({ productId: p.id })}>عرض</Button>
-                </div>
+                <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => setProduct(p)}>تعديل المنتج والأسعار</Button>
               }
             />
             <div className="space-y-3 p-4">
@@ -132,31 +190,31 @@ export function CatalogTab() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="text-xs text-muted">
-                      <tr>{['العرض', 'القطع', 'السعر', 'سعر القطعة', 'الربح التقريبي', 'الاسم المشفر', ''].map((h) => <th key={h} className="py-1.5 text-start font-medium">{h}</th>)}</tr>
+                      <tr>{['القطع', 'السعر', 'سعر القطعة', 'الربح التقريبي', 'الاسم المشفر', 'الاسم في الفورم', ''].map((h) => <th key={h} className="py-1.5 text-start font-medium">{h}</th>)}</tr>
                     </thead>
                     <tbody className="divide-y divide-line">
                       {list.map((o) => (
                         <tr key={o.id} className={o.active ? '' : 'opacity-50'}>
-                          <td className="py-2 font-medium">{o.name}</td>
-                          <td className="ltr py-2 text-right">{o.units}</td>
-                          <td className="ltr py-2 text-right">{fmtDA(o.price)}</td>
+                          <td className="py-2 font-semibold">{o.units} {o.units === 1 ? 'قطعة' : 'قطع'}</td>
+                          <td className="ltr py-2 text-right font-semibold">{fmtDA(o.price)}</td>
                           <td className="ltr py-2 text-right text-muted">{fmtDA(Math.round(o.price / o.units))}</td>
                           <td className="ltr py-2 text-right text-ok">{p.costPrice ? fmtDA(o.price - p.costPrice * o.units) : '—'}</td>
                           <td className="py-2"><code className="ltr rounded bg-subtle px-1.5 py-0.5 text-xs">{o.carrierName}</code></td>
-                          <td className="py-2 text-end"><Button size="sm" variant="ghost" icon={<Pencil className="size-3.5" />} onClick={() => setOffer(o)} aria-label="تعديل" /></td>
+                          <td className="ltr py-2 text-right text-xs text-muted">{o.name}</td>
+                          <td className="py-2 text-end"><Button size="sm" variant="ghost" icon={<Pencil className="size-3.5" />} onClick={() => setOffer(o)} aria-label="خيارات متقدمة (أسماء أخرى، إيقاف)" title="خيارات متقدمة" /></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               ) : (
-                <p className="text-sm text-faint">لا توجد عروض لهذا المنتج</p>
+                <p className="text-sm text-warn">لا توجد أسعار لهذا المنتج — أضفها من «تعديل المنتج والأسعار»</p>
               )}
             </div>
           </Card>
         );
       })}
-      {product && <ProductForm product={product === 'new' ? null : product} onClose={() => setProduct(null)} />}
+      {product && <ProductForm product={product === 'new' ? null : product} offers={offers ?? []} onClose={() => setProduct(null)} />}
       {offer && products && <OfferForm offer={offer} products={products} onClose={() => setOffer(null)} />}
     </div>
   );

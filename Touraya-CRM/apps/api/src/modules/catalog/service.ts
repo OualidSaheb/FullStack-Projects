@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { RESERVING_STATUSES, type OfferDTO, type ProductDTO, type ProductInput, type Tier, type VariantDTO } from '@touraya/shared';
+import { RESERVING_STATUSES, type OfferDTO, type ProductDTO, type ProductInput, type ProductTierInput, type Tier, type VariantDTO } from '@touraya/shared';
 import type { DbOrTx } from '../../db/client';
 import { offers, orderItems, orders, products, variants } from '../../db/schema';
 
@@ -66,11 +66,41 @@ export async function listProducts(db: DbOrTx): Promise<ProductDTO[]> {
 }
 
 export async function saveProduct(db: DbOrTx, input: ProductInput, id?: number) {
+  const { tiers, ...fields } = input;
   const [row] = id
-    ? await db.update(products).set({ ...input, updatedAt: new Date() }).where(eq(products.id, id)).returning()
-    : await db.insert(products).values(input).returning();
+    ? await db.update(products).set({ ...fields, updatedAt: new Date() }).where(eq(products.id, id)).returning()
+    : await db.insert(products).values(fields).returning();
   if (row) await syncVariants(db, row);
+  if (row && tiers) await syncTiers(db, row, tiers);
   return row;
+}
+
+/** "p 2pcs 3500": short code for the parcel label (the product is not written in full). */
+export const tierCarrierName = (product: Pick<ProductRow, 'name' | 'sku'>, units: number, price: number) =>
+  `${(product.sku || product.name).trim().charAt(0).toLowerCase() || 'p'} ${units}${units === 1 ? 'pc' : 'pcs'} ${price}`;
+
+/**
+ * The product's price list (1 piece = 2100, 2 = 3500…) becomes its offers:
+ * lines are updated in place (same offer, past orders keep pointing at it),
+ * new lines create offers, removed lines archive theirs.
+ */
+export async function syncTiers(db: DbOrTx, product: ProductRow, tiers: ProductTierInput[]) {
+  const existing = await db.select().from(offers).where(and(eq(offers.productId, product.id), isNull(offers.deletedAt)));
+  const kept = new Set<number>();
+  for (const t of tiers) {
+    const carrierName = t.carrierName || tierCarrierName(product, t.units, t.price);
+    const values = { units: t.units, price: t.price, carrierName, name: t.name || `${product.name} ${t.units}${t.units === 1 ? 'pc' : 'pcs'} ${t.price}` };
+    // A line without id takes over an offer with the same piece count, rather than duplicating it.
+    const match = existing.find((o) => !kept.has(o.id) && (t.id ? o.id === t.id : o.units === t.units && !tiers.some((x) => x.id === o.id)));
+    if (match) {
+      kept.add(match.id);
+      await db.update(offers).set({ ...values, updatedAt: new Date() }).where(eq(offers.id, match.id));
+    } else {
+      await db.insert(offers).values({ ...values, productId: product.id });
+    }
+  }
+  const removed = existing.filter((o) => !kept.has(o.id)).map((o) => o.id);
+  if (removed.length) await db.update(offers).set({ deletedAt: new Date(), active: false }).where(inArray(offers.id, removed));
 }
 
 export const toOfferDTO = ({ createdAt: _c, updatedAt: _u, deletedAt: _d, ...o }: typeof offers.$inferSelect): OfferDTO => o;

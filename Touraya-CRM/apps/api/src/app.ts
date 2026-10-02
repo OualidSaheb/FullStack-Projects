@@ -74,7 +74,14 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   // Production: serve the built web app with SPA fallback.
   const webDist = path.resolve(config.WEB_DIST ?? path.join(process.cwd(), '../web/dist'));
   if (existsSync(webDist)) {
-    await app.register(fastifyStatic, { root: webDist });
+    await app.register(fastifyStatic, {
+      root: webDist,
+      cacheControl: false,
+      // Built files carry a hash in their name: the browser keeps them for good and only
+      // re-downloads index.html, so pages open instantly after the first visit.
+      setHeaders: (res, file) =>
+        res.setHeader('cache-control', file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache'),
+    });
     app.setNotFoundHandler((req, reply) =>
       req.url.startsWith('/api') ? reply.code(404).send({ error: 'غير موجود' }) : reply.sendFile('index.html'),
     );

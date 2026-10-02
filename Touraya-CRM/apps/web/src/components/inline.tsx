@@ -13,8 +13,9 @@ export function InlineText({
   disabled,
   className,
   display,
+  noIcon,
   ...input
-}: { value: string; onSave: (v: string) => void; placeholder?: string; disabled?: boolean; className?: string; display?: ReactNode } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
+}: { value: string; onSave: (v: string) => void; placeholder?: string; disabled?: boolean; className?: string; display?: ReactNode; noIcon?: boolean } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLInputElement>(null);
@@ -53,7 +54,7 @@ export function InlineText({
   return (
     <button type="button" onClick={() => setEditing(true)} className={cn('group inline-flex max-w-full items-center gap-1.5 rounded-md text-start hover:text-primary', className)} title="اضغط للتعديل">
       <span className="truncate border-b border-dashed border-line group-hover:border-primary">{display ?? (value || <span className="text-faint">{placeholder}</span>)}</span>
-      <Pencil className="size-3 shrink-0 text-faint opacity-60 group-hover:text-primary group-hover:opacity-100" />
+      {!noIcon && <Pencil className="size-3 shrink-0 text-faint opacity-60 group-hover:text-primary group-hover:opacity-100" />}
     </button>
   );
 }
