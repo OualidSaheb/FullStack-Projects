@@ -5,9 +5,9 @@ import { useCan } from '@/lib/auth';
 import { timeAgo } from '@/lib/format';
 import { useSources } from '@/lib/queries';
 
-/** The script pings at least every 30 minutes; one hour of silence means the sheet stopped syncing. */
+/** The script reports to the database at least every hour; two hours of silence means the sheet stopped syncing. */
 export function isSourceStale(s: Pick<SourceDTO, 'lastSyncAt'>, now = Date.now()) {
-  return !s.lastSyncAt || now - new Date(s.lastSyncAt).getTime() > 60 * 60_000;
+  return !s.lastSyncAt || now - new Date(s.lastSyncAt).getTime() > 2 * 60 * 60_000;
 }
 
 /** Banner for admins: a Google Sheet that stops syncing means orders silently stop arriving. */
@@ -22,7 +22,7 @@ export function SyncAlert() {
     <div className="mb-4 flex items-start gap-2 rounded-xl border border-danger/30 bg-danger/8 px-4 py-3 text-sm text-danger">
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
       <div>
-        <b>توقف استقبال الطلبيات من:</b> {silent.map((s) => `${s.name} (آخر اتصال ${timeAgo(s.lastSyncAt!)})`).join('، ')}.{' '}
+        <b>لم يتصل منذ أكثر من ساعتين:</b> {silent.map((s) => `${s.name} (آخر اتصال ${timeAgo(s.lastSyncAt!)})`).join('، ')}.{' '}
         افتح Apps Script في الشيت وتحقق من Executions، أو أعد تشغيل setupTouraya.{' '}
         <Link to="/admin/sources" className="font-semibold underline">المصادر</Link>
       </div>

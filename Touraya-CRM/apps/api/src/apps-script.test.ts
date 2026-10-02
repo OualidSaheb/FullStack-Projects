@@ -48,11 +48,16 @@ function sandbox(sheets: Record<string, unknown[][]>, opts: { endpointOverride?:
       }),
     },
     UrlFetchApp: {
-      fetch: (url: string, o: { headers: Record<string, string>; payload: string }) => {
+      fetch: (url: string, o: { headers?: Record<string, string>; payload?: string } = {}) => {
+        if (!o.payload) {
+          calls.push(`GET ${new URL(url).pathname}`);
+          const status = execFileSync('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', url]).toString();
+          return { getResponseCode: () => Number(status), getContentText: () => '' };
+        }
         calls.push(JSON.parse(o.payload).sheetName);
         const target = opts.endpointOverride ?? url;
         try {
-          const out = execFileSync('curl', ['-s', '-w', '\n%{http_code}', '-H', 'content-type: application/json', '-H', `X-Touraya-Token: ${o.headers['X-Touraya-Token']}`, '--data-binary', '@-', target], { input: o.payload }).toString();
+          const out = execFileSync('curl', ['-s', '-w', '\n%{http_code}', '-H', 'content-type: application/json', '-H', `X-Touraya-Token: ${o.headers?.['X-Touraya-Token']}`, '--data-binary', '@-', target], { input: o.payload }).toString();
           const i = out.lastIndexOf('\n');
           return { getResponseCode: () => Number(out.slice(i + 1)), getContentText: () => out.slice(0, i) };
         } catch {
@@ -115,6 +120,7 @@ describe('Google Apps Script (end to end)', () => {
   it('the served script points to this platform and uses a 5-minute trigger', () => {
     expect(code).toContain(`${base}/api/ingest/sheets`);
     expect(code).toContain('"everyMinutes": 5');
+    expect(code).toContain('"keepAwakeMinutes": 10');
   });
 
   it('setup sends existing leads from Sheet1 + Sheet2, skipping old ones and duplicates', async () => {
@@ -127,6 +133,15 @@ describe('Google Apps Script (end to end)', () => {
     gas.calls.length = 0;
     expect(gas.run('syncTouraya')).toMatchObject({ sent: 0 });
     expect(gas.calls).toEqual([]);
+  });
+
+  it('keeps free hosting awake with a database-free health request every 10 minutes', () => {
+    gas.props.touraya_wake_at = String(Date.now() - 11 * 60_000);
+    gas.calls.length = 0;
+    gas.run('syncTouraya');
+    expect(gas.calls).toEqual(['GET /api/health']);
+    gas.run('syncTouraya'); // just woke: nothing until the next 10 minutes
+    expect(gas.calls).toEqual(['GET /api/health']);
   });
 
   it('a new Facebook lead is delivered on the next run', async () => {

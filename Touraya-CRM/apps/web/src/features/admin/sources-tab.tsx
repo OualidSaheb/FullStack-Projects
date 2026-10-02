@@ -55,7 +55,7 @@ function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClo
         </Field>
         {sheet && <Field label="الأوراق (Tabs) المقروءة" hint="اكتب الاسم ثم Enter">{() => <TagInput value={form.sheetNames} onChange={(v) => set('sheetNames', v)} />}</Field>}
         {sheet && (
-          <Field label="التحقق من الشيت كل" hint="5 دقائق موصى به (حدود Google اليومية). فحص كامل كل 30 دقيقة في كل الحالات.">
+          <Field label="التحقق من الشيت كل" hint="5 دقائق موصى به (حدود Google اليومية). فحص كامل كل ساعة في كل الحالات.">
             {(id) => (
               <Select id={id} value={form.syncMinutes} onChange={(e) => set('syncMinutes', Number(e.target.value) as SourceInput['syncMinutes'])}>
                 {[1, 5, 10, 15, 30].map((m) => <option key={m} value={m}>{m} دقيقة</option>)}

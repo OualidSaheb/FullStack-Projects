@@ -25,6 +25,17 @@ function defaultMigrationsFolder(): string {
 const migrationsFolderFor = (dir?: string) => dir ?? process.env.MIGRATIONS_DIR ?? defaultMigrationsFolder();
 
 /**
+ * Neon/libpq URLs may carry options postgres.js does not understand; postgres.js
+ * would forward them to the server as runtime parameters and the connection
+ * would be refused ("unrecognized configuration parameter"). Drop them.
+ */
+export function normalizeDatabaseUrl(url: string): string {
+  const u = new URL(url);
+  for (const key of ['channel_binding', 'gssencmode']) u.searchParams.delete(key);
+  return u.toString();
+}
+
+/**
  * Postgres in production; embedded PGlite (real Postgres compiled to WASM)
  * when no DATABASE_URL is given — zero-setup local dev and fast tests.
  * Migrations are applied on startup.
@@ -35,7 +46,7 @@ export async function openDatabase(opts: { url?: string; pgliteDir?: string; mig
     const { default: postgres } = await import('postgres');
     const { drizzle } = await import('drizzle-orm/postgres-js');
     const { migrate } = await import('drizzle-orm/postgres-js/migrator');
-    const client = postgres(opts.url, { max: 10, onnotice: () => {} });
+    const client = postgres(normalizeDatabaseUrl(opts.url), { max: 10, onnotice: () => {} });
     const db = drizzle(client, { schema });
     await migrate(db, { migrationsFolder: folder });
     return { db: db as unknown as Db, close: () => client.end() };

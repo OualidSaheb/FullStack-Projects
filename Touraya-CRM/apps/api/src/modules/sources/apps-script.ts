@@ -9,8 +9,14 @@ export interface AppsScriptParams {
   syncMinutes: number;
 }
 
-/** Full re-scan (and "alive" ping) at most this often, whatever the trigger interval. */
-const FULL_SCAN_MINUTES = 30;
+/** Full re-scan + "alive" ping to the CRM (written to the database) at most this often. */
+const FULL_SCAN_MINUTES = 60;
+/**
+ * Keep-awake: free hosts (Render…) put the app to sleep after ~15 minutes
+ * without traffic. A tiny GET on /api/health (no database work, so the free
+ * database can still pause) keeps it awake so new leads are taken instantly.
+ */
+const KEEP_AWAKE_MINUTES = 10;
 
 /**
  * Google Apps Script pasted into each offer's sheet (Extensions → Apps Script).
@@ -18,6 +24,7 @@ const FULL_SCAN_MINUTES = 30;
  * - cheap runs: a tab is only read when its row count changed, plus a full
  *   re-scan every 30 minutes (Google limits trigger runtime per day: a script
  *   reading whole sheets every minute in several files would hit the quota);
+ * - keeps free hosting awake with a light /api/health request every 10 minutes;
  * - sends only rows it has not delivered yet (local cache), in batches;
  * - the CRM is idempotent on the Facebook Lead ID: a lost cache or a double
  *   run never creates duplicates; a failing row does not block the others;
@@ -34,6 +41,7 @@ export function renderAppsScript(p: AppsScriptParams): string {
       startDate: p.startDate,
       everyMinutes: p.syncMinutes,
       fullScanMinutes: FULL_SCAN_MINUTES,
+      keepAwakeMinutes: KEEP_AWAKE_MINUTES,
       batchSize: 100,
     },
     null,
@@ -54,6 +62,7 @@ var TOURAYA = ${config};
 var CACHE_PREFIX = 'touraya_sent_';
 var ROWS_PREFIX = 'touraya_rows_';
 var LAST_FULL_SCAN = 'touraya_full_scan_at';
+var LAST_WAKE = 'touraya_wake_at';
 
 /** تشغيل مرة واحدة: ينشئ المؤقت ويرسل الطلبيات الحالية. */
 function setupTouraya() {
@@ -108,7 +117,10 @@ function run_(forceFullScan) {
     if (fullScan && summary.ok) {
       props.setProperty(LAST_FULL_SCAN, String(now));
       if (!summary.sent) post_('heartbeat', []); // "still alive" for the CRM monitor
+    } else if (!summary.sent && now - Number(props.getProperty(LAST_WAKE) || 0) >= TOURAYA.keepAwakeMinutes * 60000) {
+      wake_();
     }
+    if (summary.sent || fullScan) props.setProperty(LAST_WAKE, String(now));
     return summary;
   } finally {
     lock.releaseLock();
@@ -194,6 +206,15 @@ function post_(sheetName, rows) {
   } catch (e) {
     Logger.log('Touraya CRM unreachable: ' + e);
     return null;
+  }
+}
+
+function wake_() {
+  try {
+    UrlFetchApp.fetch(TOURAYA.endpoint.replace('/ingest/sheets', '/health'), { muteHttpExceptions: true });
+    PropertiesService.getDocumentProperties().setProperty(LAST_WAKE, String(new Date().getTime()));
+  } catch (e) {
+    Logger.log('Touraya CRM unreachable: ' + e);
   }
 }
 
