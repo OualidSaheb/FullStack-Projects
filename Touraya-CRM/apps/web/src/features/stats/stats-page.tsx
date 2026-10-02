@@ -120,6 +120,24 @@ export function StatsPage() {
             </Card>
           </div>
 
+          <Card>
+            <CardHeader title="المرتجعات" icon={<Undo2 className="size-4 text-muted" />} />
+            <div className="grid gap-4 p-4 lg:grid-cols-2">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <StatTile label="في الطريق" value={fmtNumber(data.returns.inTransit)} />
+                <StatTile label="مستلمة" value={fmtNumber(data.returns.received)} />
+                <StatTile label="قطع رجعت للمخزن" value={fmtNumber(data.returns.restocked)} icon={<PackageCheck className="size-4 text-ok" />} />
+                <StatTile label="قطع تالفة" value={fmtNumber(data.returns.damaged)} icon={<AlertTriangle className="size-4 text-danger" />} />
+                <StatTile label="قطع لم ترجع" value={fmtNumber(data.returns.kept)} />
+                <StatTile label="خسارة (سعر التكلفة)" value={fmtDA(data.returns.lossCost)} />
+              </div>
+              <div>
+                <p className="mb-3 text-sm font-semibold">الأكثر رجوعاً (منتج · مقاس · لون)</p>
+                <BarList color="var(--warn)" items={data.returns.topVariants.map((v) => ({ key: v.label, label: v.label, value: v.count }))} />
+              </div>
+            </div>
+          </Card>
+
           <Card className="overflow-hidden">
             <CardHeader title="أداء الموظفين" icon={<Users className="size-4 text-muted" />} />
             <div className="overflow-x-auto">

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { BarChart3, Boxes, ClipboardList, LogOut, Menu, Moon, PhoneCall, Settings2, Sun, Trash2, Truck, Undo2, X } from 'lucide-react';
+import { BarChart3, Bell, BellOff, Boxes, ClipboardList, LogOut, Menu, Moon, PhoneCall, Settings2, Sun, Trash2, Truck, Undo2, X } from 'lucide-react';
 import { ROLE_LABELS, type Permission } from '@touraya/shared';
 import { api, ApiError } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useMe } from '@/lib/queries';
+import { useLiveEvents, useNotifyPref } from '@/lib/live';
 import { PageLoader } from './ui';
 import { SyncAlert } from './sync-alert';
 
@@ -42,6 +43,8 @@ export function AppShell() {
   const qc = useQueryClient();
   const [dark, setDark] = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [notify, toggleNotify] = useNotifyPref();
+  useLiveEvents(Boolean(me), notify);
 
   useEffect(() => {
     const onExpired = () => {
@@ -95,6 +98,9 @@ export function AppShell() {
           <p className="text-xs text-slate-400">{ROLE_LABELS[me.role]}</p>
         </div>
         <div className="flex gap-1">
+          <button onClick={toggleNotify} title={notify ? 'إيقاف صوت وإشعار الطلبيات الجديدة' : 'تفعيل صوت وإشعار الطلبيات الجديدة'} className="flex items-center justify-center rounded-lg px-2 py-2 text-xs hover:bg-white/5 hover:text-white">
+            {notify ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+          </button>
           <button onClick={() => setDark(!dark)} className="flex flex-1 items-center justify-center gap-2 rounded-lg px-2 py-2 text-xs hover:bg-white/5 hover:text-white">
             {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             {dark ? 'فاتح' : 'داكن'}
@@ -123,7 +129,10 @@ export function AppShell() {
           <button onClick={() => setMobileOpen(!mobileOpen)} aria-label="القائمة" className="rounded-lg p-1.5 hover:bg-subtle">
             {mobileOpen ? <X className="size-5" /> : <Menu className="size-5" />}
           </button>
-          <span className="font-bold">Touraya</span>
+          <span className="flex-1 font-bold">Touraya</span>
+          <button onClick={toggleNotify} aria-label="صوت الطلبيات الجديدة" className="rounded-lg p-1.5 hover:bg-subtle">
+            {notify ? <Bell className="size-5" /> : <BellOff className="size-5 text-faint" />}
+          </button>
         </header>
         <main className="min-w-0 flex-1 overflow-y-auto p-3 pb-20 scroll-thin sm:p-4 lg:p-6 lg:pb-6">
           <SyncAlert />

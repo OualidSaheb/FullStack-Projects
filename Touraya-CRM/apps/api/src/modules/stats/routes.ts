@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, inArray, isNotNull, sql, type SQL } from 'drizzle-orm';
 import { BLOCKING_PHONE_ISSUES, orderFilterSchema, type OrderStatus, type StatsDTO } from '@touraya/shared';
-import { offers, orders, sources, users } from '../../db/schema';
+import { offers, orderItems, orders, products, sources, users } from '../../db/schema';
 import { buildOrderWhere } from '../orders/query';
 
 const CONFIRMED_OR_LATER: OrderStatus[] = ['confirmed', 'ready_for_carrier', 'sent_to_carrier', 'carrier_received', 'delivered', 'returned', 'return_received'];
@@ -24,7 +24,31 @@ export const statsRoutes: FastifyPluginAsync = async (app) => {
     // Algeria is UTC+1 with no DST.
     const day = sql<string>`to_char((${orders.createdAt} at time zone 'UTC') + interval '1 hour', 'YYYY-MM-DD')`;
 
-    const [totals, byStatus, byOffer, byWilaya, bySource, byAgent, cancelReasons, daily] = await Promise.all([
+    const returnedPieces = app.db
+      .select({
+        condition: orderItems.returnCondition,
+        pieces: sql<number>`coalesce(sum(${orderItems.quantity}), 0)::int`,
+        cost: sql<number>`coalesce(sum(${orderItems.quantity} * ${products.costPrice}), 0)::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(sql`${where} and ${isNotNull(orderItems.returnCondition)}`)
+      .groupBy(orderItems.returnCondition);
+    const topReturned = app.db
+      .select({
+        label: sql<string>`trim(concat_ws(' ', ${products.name}, nullif(${orderItems.size}, ''), nullif(${orderItems.color}, '')))`,
+        count: sql<number>`sum(${orderItems.quantity})::int`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(sql`${where} and ${inArray(orders.status, RETURNED)}`)
+      .groupBy(products.name, orderItems.size, orderItems.color)
+      .orderBy(sql`sum(${orderItems.quantity}) desc`)
+      .limit(8);
+
+    const [totals, byStatus, byOffer, byWilaya, bySource, byAgent, cancelReasons, daily, pieces, topVariants] = await Promise.all([
       app.db
         .select({
           all: count,
@@ -69,7 +93,10 @@ export const statsRoutes: FastifyPluginAsync = async (app) => {
         .groupBy(orders.cancelReason)
         .orderBy(sql`count(*) desc`),
       app.db.select({ day, count, confirmed }).from(orders).where(where).groupBy(day).orderBy(day),
+      returnedPieces,
+      topReturned,
     ]);
+    const piecesOf = (c: string) => pieces.find((p) => p.condition === c);
 
     const t = totals[0]!;
     return {
@@ -93,6 +120,15 @@ export const statsRoutes: FastifyPluginAsync = async (app) => {
       byAgent: byAgent.map((a) => ({ ...a, rate: rate(a.confirmed, a.confirmed + a.cancelled) })),
       cancelReasons,
       daily,
+      returns: {
+        inTransit: byStatus.find((s) => s.status === 'returned')?.count ?? 0,
+        received: byStatus.find((s) => s.status === 'return_received')?.count ?? 0,
+        restocked: piecesOf('restock')?.pieces ?? 0,
+        damaged: piecesOf('damaged')?.pieces ?? 0,
+        kept: piecesOf('kept')?.pieces ?? 0,
+        lossCost: (piecesOf('damaged')?.cost ?? 0) + (piecesOf('kept')?.cost ?? 0),
+        topVariants,
+      },
     };
   });
 };

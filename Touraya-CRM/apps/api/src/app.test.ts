@@ -390,3 +390,123 @@ describe('fixes from the first real use', () => {
     expect((await del(`/users/${me.id}`)).statusCode).toBe(400);
   });
 });
+
+describe('pieces, price tiers, returns and live events', () => {
+  let pantsId: number;
+  const pieces = (n: number, size = '40', color = 'أسود') => Array.from({ length: n }, () => ({ productId: pantsId, size, color, quantity: 1 }));
+
+  it('changing the number of pieces re-prices from the product tiers (1 = 2100, 2 = 3500, 3 = 4999)', async () => {
+    const pants = (await api('GET', '/products')).json().find((p: { sku: string }) => p.sku === 'PANTS');
+    pantsId = pants.id;
+    await api('POST', '/offers', { productId: pantsId, name: 'pants 1pc 2100', carrierName: 'p 1pc 2100', units: 1, price: 2100 });
+    await ingest('Sheet1', [lead('300', { full_name: 'Client 300' })]); // 3pcs offer (source default)
+    const order = await find('Client 300');
+    expect(order).toMatchObject({ price: 4999, units: 3 });
+
+    expect((await api('PATCH', `/orders/${order.id}`, { items: pieces(1) })).json()).toMatchObject({ price: 2100, offerName: 'pants 1pc 2100', units: 1 });
+    expect((await api('PATCH', `/orders/${order.id}`, { items: pieces(2) })).json()).toMatchObject({ price: 3500, offerName: 'pants 2pcs 3500' });
+    const four = (await api('PATCH', `/orders/${order.id}`, { items: pieces(4) })).json();
+    expect(four).toMatchObject({ price: 7000, units: 4, suggestedPrice: { price: 7000 } });
+    // A price typed by the agent is kept.
+    expect((await api('PATCH', `/orders/${order.id}`, { items: pieces(3), price: 4500 })).json()).toMatchObject({ price: 4500, units: 3 });
+  });
+
+  it('mixed pieces: 2 black + 1 brown, sizes 40 and 42', async () => {
+    const order = await find('Client 300');
+    const items = [
+      { productId: pantsId, size: '40', color: 'أسود', quantity: 1 },
+      { productId: pantsId, size: '42', color: 'أسود', quantity: 1 },
+      { productId: pantsId, size: '42', color: 'بني', quantity: 1 },
+    ];
+    const res = (await api('PATCH', `/orders/${order.id}`, { items })).json();
+    expect(res.itemsLabel).toBe('40 أسود + 42 أسود + 42 بني');
+    expect(res.items.every((i: { variantId: number | null }) => i.variantId !== null)).toBe(true);
+    expect(res.price).toBe(4500); // same number of pieces: price untouched
+  });
+
+  it('new colors/sizes asked by the customer are added from the order, then the pieces are filled', async () => {
+    await ingest('Sheet1', [lead('301', { full_name: 'Client 301', 'المقاس': '54', 'الألوان': 'البيج الفاتح|الاحمر العنابي|البني' })]);
+    const order = await find('Client 301');
+    expect(order.flags).toContain('variants');
+    await api('POST', `/products/${pantsId}/options`, { sizes: ['54'], colors: ['البيج الفاتح', 'الاحمر العنابي'] });
+    const res = (await api('POST', `/orders/${order.id}/redraft`)).json();
+    expect(res.itemsLabel).toBe('54 البيج الفاتح + 54 الاحمر العنابي + 54 بني');
+    expect(res.flags).not.toContain('variants');
+  });
+
+  it('agents can add options but not edit products', async () => {
+    const agent = await login('a@test.dz', 'agent-pass');
+    expect((await api('POST', `/products/${pantsId}/options`, { colors: ['أخضر'] }, agent)).statusCode).toBe(200);
+    expect((await api('PUT', `/products/${pantsId}`, { name: 'x' }, agent)).statusCode).toBe(403);
+  });
+
+  it('returns: registered by hand, checked in piece by piece, linked to another order, in stock and stats', async () => {
+    const order = await find('Client 300');
+    await api('POST', `/orders/${order.id}/status`, { status: 'confirmed' });
+    await api('POST', '/shipping/exports', { ids: [order.id] });
+    const stockOf = async (size: string, color: string) =>
+      (await api('GET', '/products')).json().find((p: { id: number }) => p.id === pantsId).variants.find((v: { size: string; color: string }) => v.size === size && v.color === color).stock;
+    const before = { s40: await stockOf('40', 'أسود'), s42: await stockOf('42', 'أسود'), b42: await stockOf('42', 'بني') };
+
+    // No carrier webhook: the manager registers the return by hand.
+    expect((await api('POST', `/orders/${order.id}/status`, { status: 'returned' })).json().status).toBe('returned');
+
+    const detail = (await api('GET', `/orders/${order.id}`)).json();
+    const [p1, p2, p3] = detail.items;
+    const statsBefore = (await api('GET', '/stats')).json().returns;
+    const other = await find('Client 301');
+    const res = (await api('POST', `/orders/${order.id}/return-received`, {
+      items: [{ itemId: p1.id, condition: 'restock' }, { itemId: p2.id, condition: 'damaged' }, { itemId: p3.id, condition: 'kept' }],
+      linkOrderReference: other.reference,
+    })).json();
+    expect(res).toMatchObject({ status: 'return_received', related: { reference: other.reference } });
+    expect(res.items.map((i: { returnCondition: string }) => i.returnCondition)).toEqual(['restock', 'damaged', 'kept']);
+    expect((await api('GET', `/orders/${other.id}`)).json().related.reference).toBe(res.reference);
+
+    expect(await stockOf('40', 'أسود')).toBe(before.s40 + 1); // back on the shelf
+    expect(await stockOf('42', 'أسود')).toBe(before.s42); // in then written off
+    expect(await stockOf('42', 'بني')).toBe(before.b42); // never came back
+    const moves = (await api('GET', '/inventory/movements')).json().filter((m: { orderReference: string }) => m.orderReference === res.reference);
+    expect(moves.map((m: { type: string }) => m.type).sort()).toEqual(['damaged', 'return', 'return', 'ship', 'ship', 'ship']);
+
+    const after = (await api('GET', '/stats')).json().returns;
+    expect(after.restocked - statsBefore.restocked).toBe(1);
+    expect(after.damaged - statsBefore.damaged).toBe(1);
+    expect(after.kept - statsBefore.kept).toBe(1);
+    expect(after.lossCost - statsBefore.lossCost).toBe(1800); // 2 pieces × 900 cost
+    expect(after.topVariants.length).toBeGreaterThan(0);
+  });
+
+  it('re-order creates a linked new order for the same customer', async () => {
+    const order = await find('Client 300');
+    const created = (await api('POST', `/orders/${order.id}/reorder`, { status: 'confirmed' })).json();
+    expect(created).toMatchObject({ status: 'confirmed', customerName: 'Client 300', units: 3, related: { id: order.id } });
+    expect(created.id).not.toBe(order.id);
+  });
+
+  it('the carrier file labels a 4-piece order with the real offer combination', async () => {
+    await ingest('Sheet1', [lead('302', { full_name: 'Client 302' })]);
+    const order = await find('Client 302');
+    await api('PATCH', `/orders/${order.id}`, { items: pieces(4) });
+    await api('POST', `/orders/${order.id}/status`, { status: 'confirmed' });
+    const preview = (await api('POST', '/shipping/preview', { ids: [order.id] })).json();
+    expect(preview.rows[0].cells[preview.headers.indexOf('produit')]).toBe('2 × p 2pcs 3500');
+  });
+
+  it('pushes new orders to open browsers (live notifications)', async () => {
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const { port } = app.server.address() as { port: number };
+    const controller = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${port}/api/events/stream`, { headers: { cookie: adminCookie }, signal: controller.signal });
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    const reader = res.body!.getReader();
+    let text = '';
+    const readUntil = async (needle: string) => {
+      while (!text.includes(needle)) text += new TextDecoder().decode((await reader.read()).value);
+    };
+    await readUntil('event: ready');
+    await ingest('Sheet1', [lead('303', { full_name: 'Client 303' })]);
+    await readUntil('event: order.created');
+    controller.abort();
+  });
+});

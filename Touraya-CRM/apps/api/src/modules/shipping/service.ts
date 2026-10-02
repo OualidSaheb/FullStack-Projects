@@ -3,8 +3,10 @@ import {
   buildExportRow,
   EXPORTABLE_STATUSES,
   STATUS_META,
+  combineOffers,
   validateForCarrier,
   type ExportableOrder,
+  type Tier,
   type ExportBatchDTO,
   type OrderStatus,
 } from '@touraya/shared';
@@ -15,6 +17,7 @@ import type { SessionUser } from '../../lib/auth';
 import { badRequest, unprocessable } from '../../lib/errors';
 import { ADAPTERS } from '../carriers/registry';
 import { getCarrier } from '../carriers/service';
+import { productTiers } from '../catalog/service';
 import { CarrierError } from '../carriers/types';
 import { logEvents } from '../orders/events';
 import { itemsLabel, loadItems } from '../orders/items';
@@ -38,6 +41,7 @@ export async function loadCarrierOrders(db: DbOrTx, ids: string[], prefix: strin
         communeName: orders.communeName,
         address: orders.address,
         productCarrierName: offers.carrierName,
+        offerUnits: offers.units,
         price: orders.price,
         deliveryType: orders.deliveryType,
         stopdeskId: orders.stopdeskId,
@@ -48,17 +52,26 @@ export async function loadCarrierOrders(db: DbOrTx, ids: string[], prefix: strin
       .orderBy(orders.number),
     loadItems(db, ids),
   ]);
-  return rows.map(({ number, deletedAt, ...r }) => {
+  const tiers = new Map<number, Tier[]>();
+  const tiersOf = async (productId: number) => tiers.get(productId) ?? tiers.set(productId, await productTiers(db, productId)).get(productId)!;
+  const result: CarrierOrder[] = [];
+  for (const { number, deletedAt, offerUnits, ...r } of rows) {
     const mine = items.filter((i) => i.orderId === r.id);
-    return {
+    const units = mine.reduce((n, i) => n + i.quantity, 0);
+    // Piece count changed after the offer (4 pieces on a 3-piece offer): label the real combination.
+    let productCarrierName = r.productCarrierName;
+    if (mine[0] && units > 0 && units !== offerUnits) productCarrierName = combineOffers(await tiersOf(mine[0].productId), units)?.carrierLabel ?? productCarrierName;
+    result.push({
       ...r,
+      productCarrierName,
       reference: formatReference(prefix, number),
       deleted: Boolean(deletedAt),
       units: mine.reduce((n, i) => n + i.quantity, 0),
       itemsLabel: itemsLabel(mine),
       missingVariants: mine.some((i) => i.variantId === null),
-    };
-  });
+    });
+  }
+  return result;
 }
 
 /** Everything that blocks an order from going to the carrier, including its status. */

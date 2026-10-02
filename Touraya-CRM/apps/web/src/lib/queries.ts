@@ -16,6 +16,7 @@ import type {
   Paginated,
   Permission,
   ProductDTO,
+  ReturnReceive,
   Role,
   Settings,
   SourceDTO,
@@ -114,10 +115,21 @@ function useOrderMutation<V, R>(fn: (v: V) => Promise<R>, success?: string) {
 
 export const useChangeStatus = (id: string) => useOrderMutation((v: StatusChange) => api.post<OrderDetail>(`/orders/${id}/status`, v));
 export const useUpdateOrder = (id: string) => useOrderMutation((v: OrderUpdate) => api.patch<OrderDetail>(`/orders/${id}`, v), 'تم حفظ التعديلات');
+/** Inline edits save on change, without a toast each time (errors still show). */
+export const useInlineUpdate = (id: string) => useOrderMutation((v: OrderUpdate) => api.patch<OrderDetail>(`/orders/${id}`, v));
+export const useRedraft = (id: string) => useOrderMutation(() => api.post<OrderDetail>(`/orders/${id}/redraft`), 'تمت تعبئة القطع');
+export const useReorder = (id: string) => useOrderMutation((status: 'new' | 'confirmed') => api.post<OrderDetail>(`/orders/${id}/reorder`, { status }), 'تم إنشاء طلبية جديدة');
+export const useAddProductOptions = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ productId, ...v }: { productId: number; sizes?: string[]; colors?: string[] }) => api.post<ProductDTO[]>(`/products/${productId}/options`, v),
+    onSuccess: (products) => qc.setQueryData(qk.products, products),
+    onError,
+  });
+};
 export const useAddComment = (id: string) => useOrderMutation((body: string) => api.post(`/orders/${id}/comments`, { body }));
 export const useBulkAction = () => useOrderMutation((v: BulkAction) => api.post<{ affected: number }>('/orders/bulk', v));
-export const useReceiveReturn = (id: string) =>
-  useOrderMutation((v: { condition: 'restock' | 'damaged'; note?: string }) => api.post<OrderDetail>(`/orders/${id}/return-received`, v), 'تم تسجيل المرتجع');
+export const useReceiveReturn = (id: string) => useOrderMutation((v: ReturnReceive) => api.post<OrderDetail>(`/orders/${id}/return-received`, v), 'تم تسجيل المرتجع');
 export const useDeleteByFilter = () =>
   useOrderMutation((v: { filter: OrderFilter; confirmCount: number }) => api.post<{ affected: number }>('/orders/delete-by-filter', v));
 

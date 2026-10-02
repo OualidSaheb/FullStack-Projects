@@ -1,10 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
-import { offerSchema, productSchema } from '@touraya/shared';
+import { offerSchema, productOptionsSchema, productSchema } from '@touraya/shared';
 import { offers, products } from '../../db/schema';
 import { notFound } from '../../lib/errors';
-import { listProducts, saveProduct, toOfferDTO } from './service';
+import { addProductOptions, listProducts, saveProduct, toOfferDTO } from './service';
 
 const idParams = z.object({ id: z.coerce.number().int() });
 
@@ -21,6 +21,17 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
   app.put('/products/:id', manage, async (req) => {
     const { id } = idParams.parse(req.params);
     const row = await app.db.transaction((tx) => saveProduct(tx, productSchema.parse(req.body), id));
+    if (!row) throw notFound();
+    return listProducts(app.db);
+  });
+
+  /**
+   * Add a size or color while on the phone with a customer ("he wants green").
+   * Agents can do it: it only creates empty stock slots, never changes prices.
+   */
+  app.post('/products/:id/options', { preHandler: app.requirePermission('orders.edit') }, async (req) => {
+    const { id } = idParams.parse(req.params);
+    const row = await app.db.transaction((tx) => addProductOptions(tx, id, productOptionsSchema.parse(req.body)));
     if (!row) throw notFound();
     return listProducts(app.db);
   });

@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { RESERVING_STATUSES, type OfferDTO, type ProductDTO, type ProductInput, type VariantDTO } from '@touraya/shared';
+import { RESERVING_STATUSES, type OfferDTO, type ProductDTO, type ProductInput, type Tier, type VariantDTO } from '@touraya/shared';
 import type { DbOrTx } from '../../db/client';
 import { offers, orderItems, orders, products, variants } from '../../db/schema';
 
@@ -89,4 +89,26 @@ export async function findVariantIds(db: DbOrTx, items: { productId: number; siz
     if (!p || (p.sizes.length && !i.size) || (p.colors.length && !i.color)) return null;
     return rows.find((v) => v.productId === i.productId && v.size === (i.size ?? '') && v.color === (i.color ?? ''))?.id ?? null;
   });
+}
+
+/** A product's active offers as price tiers (1 piece, 2 pieces, 3 pieces…). */
+export async function productTiers(db: DbOrTx, productId: number): Promise<Tier[]> {
+  return db
+    .select({ id: offers.id, units: offers.units, price: offers.price, carrierName: offers.carrierName, name: offers.name })
+    .from(offers)
+    .where(and(eq(offers.productId, productId), eq(offers.active, true), isNull(offers.deletedAt)));
+}
+
+/** Adds sizes/colors to a product (keeps existing ones and their order) and creates the new variants. */
+export async function addProductOptions(db: DbOrTx, productId: number, add: { sizes: string[]; colors: string[] }) {
+  const [p] = await db.select().from(products).where(eq(products.id, productId));
+  if (!p) return null;
+  const merge = (current: string[], extra: string[]) => [...current, ...extra.filter((x) => !current.some((c) => c.trim() === x.trim()))];
+  const [row] = await db
+    .update(products)
+    .set({ sizes: merge(p.sizes, add.sizes), colors: merge(p.colors, add.colors), updatedAt: new Date() })
+    .where(eq(products.id, productId))
+    .returning();
+  await syncVariants(db, row!);
+  return row!;
 }

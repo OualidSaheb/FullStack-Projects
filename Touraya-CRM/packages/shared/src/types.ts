@@ -112,6 +112,7 @@ export interface OrderItemDTO {
   color: string | null;
   quantity: number;
   available: number | null;
+  returnCondition: 'restock' | 'damaged' | 'kept' | null;
 }
 
 export interface OrderListItem {
@@ -168,6 +169,10 @@ export interface OrderDetail extends OrderListItem {
   items: OrderItemDTO[];
   customer: (CustomerHistory & { id: number; blacklistReason: string | null }) | null;
   duplicateOf: { id: string; reference: string; status: OrderStatus } | null;
+  /** Linked order (re-sent after a return, or reused this return's pieces). */
+  related: { id: string; reference: string; status: OrderStatus } | null;
+  /** Price for the current number of pieces from the product's offers (null if no tier fits). */
+  suggestedPrice: { price: number; label: string } | null;
   raw: Record<string, unknown>;
   sheetName: string | null;
   sheetRow: number | null;
@@ -248,4 +253,15 @@ export interface StatsDTO {
   byAgent: { userId: number | null; name: string; handled: number; confirmed: number; cancelled: number; rate: number }[];
   cancelReasons: { reason: string; count: number }[];
   daily: { day: string; count: number; confirmed: number }[];
+  returns: {
+    inTransit: number;
+    received: number;
+    /** Pieces by outcome at check-in. */
+    restocked: number;
+    damaged: number;
+    kept: number;
+    /** Cost of damaged + never-returned pieces (product cost price). */
+    lossCost: number;
+    topVariants: { label: string; count: number }[];
+  };
 }

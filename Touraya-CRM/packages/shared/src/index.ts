@@ -9,5 +9,6 @@ export * from './carriers';
 export * from './customers';
 export * from './scheduling';
 export * from './variants';
+export * from './pricing';
 export * from './schemas';
 export * from './types';

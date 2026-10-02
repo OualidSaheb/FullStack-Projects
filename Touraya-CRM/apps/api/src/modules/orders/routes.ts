@@ -8,6 +8,7 @@ import {
   orderFilterSchema,
   orderListQuerySchema,
   orderUpdateSchema,
+  reorderSchema,
   returnReceiveSchema,
   statusChangeSchema,
 } from '@touraya/shared';
@@ -16,7 +17,7 @@ import { assertCan } from '../../lib/auth';
 import { conflict } from '../../lib/errors';
 import { countByStatus, idsForFilter, listOrders } from './query';
 import { claimNextOrder } from './queue';
-import { addComment, bulkAction, changeStatus, getOrderDetail, getTimeline, receiveReturn, updateOrder } from './service';
+import { addComment, bulkAction, changeStatus, getOrderDetail, getTimeline, receiveReturn, redraftItems, reorder, updateOrder } from './service';
 
 const idParams = z.object({ id: z.string().uuid() });
 
@@ -54,10 +55,13 @@ export const orderRoutes: FastifyPluginAsync = async (app) => {
     return addComment(app, idParams.parse(req.params).id, commentSchema.parse(req.body).body, req.user);
   });
 
-  app.post('/orders/:id/return-received', { preHandler: app.requirePermission('returns.manage') }, async (req) => {
-    const { condition, note } = returnReceiveSchema.parse(req.body);
-    return receiveReturn(app, idParams.parse(req.params).id, condition, note, req.user);
-  });
+  app.post('/orders/:id/return-received', { preHandler: app.requirePermission('returns.manage') }, async (req) =>
+    receiveReturn(app, idParams.parse(req.params).id, returnReceiveSchema.parse(req.body ?? {}), req.user),
+  );
+
+  app.post('/orders/:id/reorder', view, async (req) => reorder(app, idParams.parse(req.params).id, reorderSchema.parse(req.body ?? {}).status, req.user));
+
+  app.post('/orders/:id/redraft', view, async (req) => redraftItems(app, idParams.parse(req.params).id, req.user));
 
   app.post('/orders/bulk', view, async (req) => bulkAction(app, bulkActionSchema.parse(req.body), req.user));
 

@@ -14,8 +14,8 @@ export async function replaceItems(db: DbOrTx, orderId: string, items: OrderItem
   );
 }
 
-/** Pieces for an offer, pre-filled from the customer's answers ("أسود_رمادي", "L"). */
-export async function draftOfferItems(db: DbOrTx, offerId: number | null, request: { size?: string | null; colors?: string | null }): Promise<OrderItemInput[]> {
+/** Pieces for an offer, pre-filled from the customer's answers ("أسود_رمادي", "L"). `units` overrides the offer's piece count. */
+export async function draftOfferItems(db: DbOrTx, offerId: number | null, request: { size?: string | null; colors?: string | null }, units?: number): Promise<OrderItemInput[]> {
   if (!offerId) return [];
   const [row] = await db
     .select({ units: offers.units, productId: products.id, sizes: products.sizes, colors: products.colors })
@@ -23,13 +23,13 @@ export async function draftOfferItems(db: DbOrTx, offerId: number | null, reques
     .innerJoin(products, eq(products.id, offers.productId))
     .where(eq(offers.id, offerId));
   if (!row) return [];
-  return draftItems(row.units, request, row).map((d) => ({ productId: row.productId, size: d.size, color: d.color, quantity: 1 }));
+  return draftItems(units ?? row.units, request, row).map((d) => ({ productId: row.productId, size: d.size, color: d.color, quantity: 1 }));
 }
 
 export async function loadItems(db: DbOrTx, orderIds: string[]) {
   if (!orderIds.length) return [];
   return db
-    .select({ id: orderItems.id, orderId: orderItems.orderId, productId: orderItems.productId, productName: products.name, variantId: orderItems.variantId, size: orderItems.size, color: orderItems.color, quantity: orderItems.quantity })
+    .select({ id: orderItems.id, orderId: orderItems.orderId, productId: orderItems.productId, productName: products.name, variantId: orderItems.variantId, size: orderItems.size, color: orderItems.color, quantity: orderItems.quantity, returnCondition: orderItems.returnCondition })
     .from(orderItems)
     .innerJoin(products, eq(products.id, orderItems.productId))
     .where(inArray(orderItems.orderId, orderIds))

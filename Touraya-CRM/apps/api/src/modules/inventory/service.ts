@@ -25,11 +25,11 @@ export async function moveStock(db: DbOrTx, moves: MoveInput[]) {
 }
 
 /** Pieces of an order that are linked to a variant. */
-export async function orderPieces(db: DbOrTx, orderId: string) {
+export async function orderPieces(db: DbOrTx, orderId: string, itemIds?: number[]) {
   return db
-    .select({ variantId: orderItems.variantId, quantity: orderItems.quantity })
+    .select({ id: orderItems.id, variantId: orderItems.variantId, quantity: orderItems.quantity })
     .from(orderItems)
-    .where(and(eq(orderItems.orderId, orderId), isNotNull(orderItems.variantId)));
+    .where(and(eq(orderItems.orderId, orderId), isNotNull(orderItems.variantId), itemIds ? inArray(orderItems.id, itemIds.length ? itemIds : [-1]) : undefined));
 }
 
 /**
@@ -43,8 +43,10 @@ export async function moveOrderStock(
   direction: 1 | -1,
   actorId: number | null,
   prefix: string,
+  /** Only these pieces (partial return); all pieces when omitted. */
+  itemIds?: number[],
 ) {
-  const pieces = await orderPieces(db, order.id);
+  const pieces = await orderPieces(db, order.id, itemIds);
   await moveStock(
     db,
     pieces.map((p) => ({

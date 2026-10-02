@@ -15,15 +15,18 @@ export class EventBus {
   private emitter = new EventEmitter();
 
   constructor(private onError: (err: unknown, event: string) => void = () => {}) {
-    this.emitter.setMaxListeners(50);
+    this.emitter.setMaxListeners(500); // one listener per open browser tab
   }
 
-  on<K extends keyof DomainEvents>(event: K, handler: (payload: DomainEvents[K]) => void | Promise<void>) {
-    this.emitter.on(event, (payload: DomainEvents[K]) => {
+  /** Subscribes; returns the unsubscribe function (live connections must clean up). */
+  on<K extends keyof DomainEvents>(event: K, handler: (payload: DomainEvents[K]) => void | Promise<void>): () => void {
+    const listener = (payload: DomainEvents[K]) => {
       Promise.resolve()
         .then(() => handler(payload))
         .catch((err) => this.onError(err, event));
-    });
+    };
+    this.emitter.on(event, listener);
+    return () => this.emitter.off(event, listener);
   }
 
   emit<K extends keyof DomainEvents>(event: K, payloads: DomainEvents[K] | DomainEvents[K][]) {

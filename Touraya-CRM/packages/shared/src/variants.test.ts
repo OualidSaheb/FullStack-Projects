@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { draftItems, findOptions } from './variants';
+import { draftItems, findOptions, splitAnswer, unknownOptions } from './variants';
 
 const pants = { sizes: ['38', '40', '42', 'L', 'XL'], colors: ['أسود', 'رمادي', 'بني', 'أزرق', 'أزرق فاتح', 'بيج'] };
 
@@ -27,5 +27,37 @@ describe('variant drafting', () => {
 
   it('products without options get null variants', () => {
     expect(draftItems(1, { size: 'L', colors: 'أبيض' }, { sizes: [], colors: [] })).toEqual([{ size: null, color: null }]);
+  });
+});
+
+describe('customer answers', () => {
+  it('splits any separator', () => {
+    expect(splitAnswer('البيج الفاتح|الاحمر العنابي|البني')).toEqual(['البيج الفاتح', 'الاحمر العنابي', 'البني']);
+    expect(splitAnswer('أسود_رمادي')).toEqual(['أسود', 'رمادي']);
+    expect(splitAnswer('noir, gris')).toEqual(['noir', 'gris']);
+    expect(splitAnswer('54')).toEqual(['54']);
+  });
+
+  it('finds choices the product does not have yet', () => {
+    expect(unknownOptions({ size: '54', colors: 'البيج الفاتح|أسود|البني' }, { sizes: ['40', '42'], colors: ['أسود', 'بني'] })).toEqual({
+      sizes: ['54'],
+      colors: ['البيج الفاتح'],
+    });
+  });
+
+  it('finds new choices in plain space-separated answers', () => {
+    const product = { sizes: ['38', '40'], colors: ['أسود', 'رمادي', 'أزرق فاتح'] };
+    expect(unknownOptions({ size: '38', colors: 'أسود أحمر' }, product)).toEqual({ sizes: [], colors: ['أحمر'] });
+    expect(unknownOptions({ size: '48 و 50', colors: 'أزرق فاتح و أخضر' }, product)).toEqual({ sizes: ['48', '50'], colors: ['أخضر'] });
+    expect(unknownOptions({ size: '40', colors: 'أسود رمادي' }, product)).toEqual({ sizes: [], colors: [] });
+  });
+
+  it('pipe-separated colors are drafted once the product has them', () => {
+    const product = { sizes: ['54'], colors: ['البيج الفاتح', 'الاحمر العنابي', 'البني'] };
+    expect(draftItems(3, { size: '54', colors: 'البيج الفاتح|الاحمر العنابي|البني' }, product)).toEqual([
+      { size: '54', color: 'البيج الفاتح' },
+      { size: '54', color: 'الاحمر العنابي' },
+      { size: '54', color: 'البني' },
+    ]);
   });
 });

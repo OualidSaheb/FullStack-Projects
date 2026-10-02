@@ -212,6 +212,8 @@ export const orders = pgTable(
     exportBatchId: integer('export_batch_id').references(() => exportBatches.id, { onDelete: 'set null' }),
     carrierTracking: text('carrier_tracking'),
     carrierStatus: text('carrier_status'),
+    /** Linked order: re-sent after a return, or the order that reused this return's pieces. */
+    relatedOrderId: uuid('related_order_id').references((): AnyPgColumn => orders.id, { onDelete: 'set null' }),
     /** Whether the pieces are currently out of the warehouse (makes stock moves idempotent). */
     stockOut: boolean('stock_out').notNull().default(false),
 
@@ -248,6 +250,8 @@ export const orderItems = pgTable(
     size: text('size').notNull().default(''),
     color: text('color').notNull().default(''),
     quantity: integer('quantity').notNull().default(1),
+    /** What happened to this piece when the parcel came back. */
+    returnCondition: text('return_condition').$type<'restock' | 'damaged' | 'kept'>(),
   },
   (t) => [index('order_items_order_idx').on(t.orderId), index('order_items_variant_idx').on(t.variantId)],
 );

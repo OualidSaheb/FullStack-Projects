@@ -8,8 +8,8 @@ export function Card({ className, children }: { className?: string; children: Re
 
 export function CardHeader({ title, action, icon }: { title: ReactNode; action?: ReactNode; icon?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
-      <h3 className="flex items-center gap-2 text-sm font-semibold">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+      <h3 className="flex min-w-0 max-w-full items-center gap-2 text-sm font-semibold">
         {icon}
         {title}
       </h3>

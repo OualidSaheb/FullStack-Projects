@@ -1,12 +1,23 @@
 import { useState, type ReactNode } from 'react';
-import { AlertTriangle, ChevronDown, Copy, MapPin, Package, Pencil, User } from 'lucide-react';
-import { PHONE_ISSUES, BLOCKING_PHONE_ISSUES, type OrderDetail } from '@touraya/shared';
+import { AlertTriangle, ChevronDown, Copy, Link2, MapPin, Package, User } from 'lucide-react';
+import {
+  BLOCKING_PHONE_ISSUES,
+  DELIVERY_TYPES,
+  getWilaya,
+  PHONE_ISSUES,
+  suggestCommunes,
+  WILAYAS,
+  type DeliveryType,
+  type OrderDetail,
+} from '@touraya/shared';
+import { fmtDA } from '@/lib/format';
+import { useInlineUpdate, useOffers } from '@/lib/queries';
+import { InlineSelect, InlineText } from '@/components/inline';
+import { StatusBadge } from '@/components/status';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
-import { communeLabel, wilayaLabel } from '@/components/geo-select';
 import { CallButton, WhatsAppButton } from '@/components/phone';
-import { Alert, Button, Card, CardHeader } from '@/components/ui';
-import { OrderEditForm } from './order-edit-form';
+import { Alert, Card, CardHeader } from '@/components/ui';
 import { OrderActivity, OrderComments } from './order-timeline';
 import { CustomerCard } from './parts/customer-card';
 import { FlagBadges } from './parts/flags';
@@ -75,22 +86,73 @@ function RawData({ raw }: { raw: Record<string, unknown> }) {
   );
 }
 
+/** Wilaya → commune pickers that save immediately; communes limited to the wilaya (carrier names). */
+function LocationEditor({ order, disabled }: { order: OrderDetail; disabled: boolean }) {
+  const update = useInlineUpdate(order.id);
+  const wilaya = getWilaya(order.wilayaCode);
+  const suggestions = order.communeRaw && !order.communeName && wilaya ? suggestCommunes(order.communeRaw, wilaya.code, 3).filter((x) => x.score > 0.4) : [];
+  const communeOptions = [
+    ...suggestions.map((x) => ({ value: x.commune.name, label: `★ ${x.commune.nameAr || x.commune.name}` })),
+    ...(wilaya?.communes ?? []).map((c) => ({ value: c.name, label: c.nameAr ? `${c.nameAr} (${c.name})` : c.name })),
+  ];
+  return (
+    <>
+      <Row label="الولاية">
+        <InlineSelect
+          disabled={disabled}
+          value={order.wilayaCode}
+          placeholder={order.wilayaRaw ? `«${order.wilayaRaw}» — اختر` : 'اختر الولاية'}
+          tone={order.wilayaCode ? undefined : 'warn'}
+          options={WILAYAS.map((w) => ({ value: w.code, label: `${String(w.code).padStart(2, '0')} - ${w.nameAr}` }))}
+          onSave={(v) => update.mutate({ wilayaCode: v, communeName: null })}
+          aria-label="الولاية"
+        />
+      </Row>
+      <Row label="البلدية">
+        <InlineSelect
+          disabled={disabled || !wilaya}
+          className="max-w-56"
+          value={order.communeName}
+          placeholder={order.communeRaw ? `«${order.communeRaw}» — اختر` : 'اختر البلدية'}
+          tone={order.communeName ? undefined : 'warn'}
+          options={communeOptions}
+          onSave={(v) => update.mutate({ communeName: v })}
+          aria-label="البلدية"
+        />
+      </Row>
+      <Row label="العنوان">
+        <InlineText disabled={disabled} value={order.address ?? ''} placeholder="اختياري" onSave={(v) => update.mutate({ address: v || null })} />
+      </Row>
+      <Row label="التوصيل">
+        <InlineSelect
+          disabled={disabled}
+          value={order.deliveryType}
+          options={Object.entries(DELIVERY_TYPES).map(([value, label]) => ({ value: value as DeliveryType, label }))}
+          onSave={(v) => v && update.mutate({ deliveryType: v })}
+          aria-label="نوع التوصيل"
+        />
+      </Row>
+      {order.deliveryType === 'stopdesk' && (
+        <Row label="رقم المكتب">
+          <InlineText disabled={disabled} dir="ltr" value={order.stopdeskId ?? ''} placeholder="Stop desk ID" onSave={(v) => update.mutate({ stopdeskId: v || null })} />
+        </Row>
+      )}
+    </>
+  );
+}
+
 /**
  * Everything about an order, in the order an agent needs it during a call:
  * who → call → what they ordered (pieces, price + delivery) → where → notes.
+ * Every value is edited in place (tap → change → saved); each change is logged.
  * Shared by the detail drawer and the call (work) mode.
  */
 export function OrderPanel({ order, onOpenOrder }: { order: OrderDetail; onOpenOrder?: (id: string) => void }) {
-  const [editing, setEditing] = useState(false);
   const can = useCan();
+  const update = useInlineUpdate(order.id);
+  const { data: offers } = useOffers();
   const editable = can('orders.edit') && !order.deletedAt;
-
-  if (editing)
-    return (
-      <Card className="p-4">
-        <OrderEditForm order={order} onDone={() => setEditing(false)} />
-      </Card>
-    );
+  const shipped = ['ready_for_carrier', 'sent_to_carrier', 'carrier_received', 'delivered', 'returned', 'return_received'].includes(order.status);
 
   return (
     <div className="space-y-4">
@@ -101,19 +163,65 @@ export function OrderPanel({ order, onOpenOrder }: { order: OrderDetail; onOpenO
           <button className="ltr font-semibold underline" onClick={() => onOpenOrder?.(order.duplicateOf!.id)}>{order.duplicateOf.reference}</button> — تأكد أنها ليست مكررة.
         </Alert>
       )}
+      {order.related && (
+        <Alert tone="primary" icon={<Link2 className="mt-0.5 size-4 shrink-0" />}>
+          مرتبطة بالطلبية <button className="ltr font-semibold underline" onClick={() => onOpenOrder?.(order.related!.id)}>{order.related.reference}</button>{' '}
+          <StatusBadge status={order.related.status} short />
+        </Alert>
+      )}
       <CustomerCard order={order} onOpenOrder={onOpenOrder} />
 
       <Card>
         <CardHeader
-          title={order.customerName || 'بدون اسم'}
+          title={<InlineText disabled={!editable} value={order.customerName} placeholder="بدون اسم" onSave={(v) => v && update.mutate({ customerName: v })} />}
           icon={<User className="size-4 text-muted" />}
-          action={editable && <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => setEditing(true)}>تعديل</Button>}
         />
-        <div className="p-4"><PhoneBlock order={order} /></div>
+        <div className="space-y-3 p-4">
+          <PhoneBlock order={order} />
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            <span className="flex items-center gap-2 text-muted">
+              الهاتف:
+              <InlineText disabled={!editable} dir="ltr" inputMode="tel" value={order.phone ?? ''} onSave={(v) => update.mutate({ phone: v })} className="text-fg" />
+            </span>
+            <span className="flex items-center gap-2 text-muted">
+              احتياطي:
+              <InlineText disabled={!editable} dir="ltr" inputMode="tel" value={order.phoneAlt ?? ''} placeholder="إضافة" onSave={(v) => update.mutate({ phoneAlt: v || null })} className="text-fg" />
+            </span>
+          </div>
+        </div>
       </Card>
 
       <Card>
-        <CardHeader title={order.offerName ?? order.offerRaw ?? 'بدون عرض'} icon={<Package className="size-4 text-muted" />} />
+        <CardHeader
+          title={
+            editable && !shipped ? (
+              <InlineSelect
+                value={order.offerId}
+                placeholder={order.offerRaw ?? 'اختر العرض'}
+                tone={order.offerId ? undefined : 'warn'}
+                options={(offers ?? []).filter((o) => o.active || o.id === order.offerId).map((o) => ({ value: o.id, label: `${o.name} — ${fmtDA(o.price)}` }))}
+                onSave={(v) => v && update.mutate({ offerId: v })}
+                aria-label="العرض"
+              />
+            ) : (
+              order.offerName ?? order.offerRaw ?? 'بدون عرض'
+            )
+          }
+          icon={<Package className="size-4 text-muted" />}
+          action={
+            <span className="flex items-center gap-1 text-sm text-muted">
+              السعر
+              <InlineText
+                disabled={!editable || shipped}
+                dir="ltr"
+                inputMode="numeric"
+                value={String(order.price)}
+                display={<span className="ltr font-semibold text-fg">{fmtDA(order.price)}</span>}
+                onSave={(v) => Number.isFinite(Number(v)) && update.mutate({ price: Math.max(0, Math.round(Number(v))) })}
+              />
+            </span>
+          }
+        />
         <div className="space-y-3 p-4">
           <PriceSummary order={order} />
           {(order.size || order.colors) && (
@@ -128,12 +236,7 @@ export function OrderPanel({ order, onOpenOrder }: { order: OrderDetail; onOpenO
       <Card>
         <CardHeader title="التوصيل" icon={<MapPin className="size-4 text-muted" />} />
         <dl className="divide-y divide-line px-4">
-          <Row label="الولاية">{order.wilayaCode ? wilayaLabel(order.wilayaCode) : <span className="text-warn">{order.wilayaRaw ?? 'غير محددة'}</span>}</Row>
-          <Row label="البلدية">
-            {order.communeName ? communeLabel(order.communeName, order.wilayaCode) : <span className="text-warn">{order.communeRaw ? `«${order.communeRaw}» غير مطابقة` : 'غير محددة'}</span>}
-          </Row>
-          <Row label="العنوان">{order.address}</Row>
-          <Row label="النوع">{order.deliveryType === 'stopdesk' ? `مكتب ${order.stopdeskId ?? ''}` : 'المنزل'}</Row>
+          <LocationEditor order={order} disabled={!editable || shipped} />
           {order.carrierName && <Row label="الشركة">{order.carrierName}</Row>}
           {order.carrierTracking && <Row label="رقم التتبع"><span className="ltr">{order.carrierTracking}</span></Row>}
           {order.carrierStatus && <Row label="حالة الناقل">{order.carrierStatus}</Row>}

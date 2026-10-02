@@ -17,6 +17,7 @@ import { catalogRoutes } from './modules/catalog/routes';
 import { carrierRoutes } from './modules/carriers/routes';
 import { customerRoutes } from './modules/customers/routes';
 import { inventoryRoutes } from './modules/inventory/routes';
+import { liveRoutes } from './modules/live/routes';
 import { settingsRoutes } from './modules/settings/routes';
 import { carrierWebhookRoutes, shippingRoutes } from './modules/shipping/routes';
 import { sourceRoutes } from './modules/sources/routes';
@@ -65,6 +66,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
       await api.register(statsRoutes);
       await api.register(settingsRoutes);
       await api.register(carrierWebhookRoutes);
+      await api.register(liveRoutes);
     },
     { prefix: '/api' },
   );

@@ -98,10 +98,21 @@ export type BulkAction = z.infer<typeof bulkActionSchema>;
 /** Soft-delete everything matching a filter (e.g. all tests, all cancelled of an offer). */
 export const deleteByFilterSchema = z.object({ filter: orderFilterSchema, confirmCount: z.number().int().min(1) });
 
+export const RETURN_CONDITIONS = { restock: 'سليمة ← المخزن', damaged: 'تالفة', kept: 'لم ترجع (احتفظ بها الزبون / ضاعت)' } as const;
+export type ReturnConditionKey = keyof typeof RETURN_CONDITIONS;
+
+/** Checking in a returned parcel: one condition for all pieces, or piece by piece. */
 export const returnReceiveSchema = z.object({
-  condition: z.enum(['restock', 'damaged']),
+  condition: z.enum(['restock', 'damaged']).default('restock'),
+  items: z.array(z.object({ itemId: z.number().int().positive(), condition: z.enum(['restock', 'damaged', 'kept']) })).optional(),
+  /** The pieces were re-sent to another order (e.g. TR-00123): both orders are linked. */
+  linkOrderReference: z.string().trim().max(30).optional(),
   note: z.string().trim().max(500).optional(),
 });
+export type ReturnReceive = z.infer<typeof returnReceiveSchema>;
+
+/** New order for the same customer from an existing one (refused parcel re-sent, re-order). */
+export const reorderSchema = z.object({ status: z.enum(['new', 'confirmed']).default('confirmed') });
 
 // ── Catalog & stock ──────────────────────────────────────────────────────
 
@@ -138,6 +149,9 @@ export const STOCK_MOVEMENT_LABELS: Record<StockMovementType, string> = {
   return: 'رجوع مرتجع',
   damaged: 'تالف',
 };
+
+/** Add sizes/colors to a product (from an order, when a customer asks for a new one). */
+export const productOptionsSchema = z.object({ sizes: names.default([]), colors: names.default([]) });
 
 export const stockMovementSchema = z.object({
   variantId: z.number().int().positive(),

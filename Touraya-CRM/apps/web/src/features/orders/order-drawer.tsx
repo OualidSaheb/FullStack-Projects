@@ -1,8 +1,8 @@
-import { Copy, RotateCcw, Trash2, X } from 'lucide-react';
+import { Copy, Repeat, RotateCcw, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@/lib/auth';
 import { fmtDateTime } from '@/lib/format';
-import { useBulkAction, useOrder } from '@/lib/queries';
+import { useBulkAction, useOrder, useReorder } from '@/lib/queries';
 import { StatusBadge } from '@/components/status';
 import { Badge, Drawer, IconButton, PageLoader } from '@/components/ui';
 import { OrderPanel } from './order-panel';
@@ -12,6 +12,8 @@ export function OrderDrawer({ orderId, onClose, onOpenOrder }: { orderId: string
   const { data: order, isLoading } = useOrder(orderId);
   const can = useCan();
   const bulk = useBulkAction();
+  const reorder = useReorder(orderId ?? '');
+  const canReorder = order && can('orders.status') && ['cancelled', 'delivered', 'returned', 'return_received'].includes(order.status);
 
   return (
     <Drawer open={Boolean(orderId)} onClose={onClose}>
@@ -34,6 +36,14 @@ export function OrderDrawer({ orderId, onClose, onOpenOrder }: { orderId: string
                 </p>
               </div>
               <div className="flex items-center gap-1">
+                {canReorder && (
+                  <IconButton
+                    label="طلبية جديدة لنفس الزبون (مرتبطة)"
+                    icon={<Repeat className="size-4" />}
+                    loading={reorder.isPending}
+                    onClick={() => reorder.mutate('new', { onSuccess: (o) => onOpenOrder?.(o.id) })}
+                  />
+                )}
                 <IconButton label="نسخ رقم الطلبية" icon={<Copy className="size-4" />} onClick={() => navigator.clipboard.writeText(order.reference).then(() => toast.success('تم النسخ'))} />
                 {can('orders.delete') &&
                   (order.deletedAt ? (
