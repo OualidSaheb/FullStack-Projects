@@ -14,13 +14,13 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
   app.get('/products', { preHandler: app.requireAuth }, async () => listProducts(app.db));
 
   app.post('/products', manage, async (req) => {
-    await app.db.transaction((tx) => saveProduct(tx, productSchema.parse(req.body)));
+    await app.db.transaction((tx) => saveProduct(tx, productSchema.parse(req.body), undefined, req.user.id));
     return listProducts(app.db);
   });
 
   app.put('/products/:id', manage, async (req) => {
     const { id } = idParams.parse(req.params);
-    const row = await app.db.transaction((tx) => saveProduct(tx, productSchema.parse(req.body), id));
+    const row = await app.db.transaction((tx) => saveProduct(tx, productSchema.parse(req.body), id, req.user.id));
     if (!row) throw notFound();
     return listProducts(app.db);
   });

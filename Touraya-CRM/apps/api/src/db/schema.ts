@@ -126,10 +126,16 @@ export interface SyncStats {
   errors: { row: number; sheet: string; message: string }[];
 }
 
+export interface DriveFile {
+  spreadsheetId: string;
+  name: string;
+  tabs: { name: string; rows: number }[];
+}
+
 export const sources = pgTable('sources', {
   id: serial('id').primaryKey(),
   name: text('name').notNull(),
-  type: text('type').$type<'google_sheet' | 'webhook'>().notNull().default('google_sheet'),
+  type: text('type').$type<'google_sheet' | 'google_drive' | 'webhook'>().notNull().default('google_sheet'),
   spreadsheetId: text('spreadsheet_id').notNull().default(''),
   formType: text('form_type').$type<'new' | 'legacy'>().notNull().default('new'),
   offerId: integer('offer_id').references(() => offers.id, { onDelete: 'set null' }),
@@ -143,6 +149,10 @@ export const sources = pgTable('sources', {
   lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
   lastHeaders: jsonb('last_headers').$type<string[]>().notNull().default([]),
   lastSyncStats: jsonb('last_sync_stats').$type<SyncStats | null>(),
+  /** google_drive: the Drive folder the script reads (every spreadsheet, every tab). */
+  folderName: text('folder_name').notNull().default(''),
+  /** google_drive: spreadsheets the script saw on its last full pass. */
+  files: jsonb('files').$type<DriveFile[]>().notNull().default([]),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -162,6 +172,33 @@ export const exportBatches = pgTable('export_batches', {
   createdAt: createdAt(),
 });
 
+/**
+ * A Facebook lead form, found automatically from the leads it sends (form_id,
+ * else its name, else the sheet tab). Linking it to an offer once tells every
+ * lead of that form which product and how many pieces — several forms can sell
+ * the same offer (testing questions), and they are compared in the statistics.
+ */
+export const forms = pgTable('forms', {
+  id: serial('id').primaryKey(),
+  key: text('key').notNull().unique(),
+  name: text('name').notNull().default(''),
+  sourceId: integer('source_id').references(() => sources.id, { onDelete: 'set null' }),
+  spreadsheetId: text('spreadsheet_id').notNull().default(''),
+  spreadsheetName: text('spreadsheet_name').notNull().default(''),
+  sheetName: text('sheet_name').notNull().default(''),
+  offerId: integer('offer_id').references(() => offers.id, { onDelete: 'set null' }),
+  /** How the offer was set: from the form name, by hand, or from the old per-sheet source. */
+  linkedBy: text('linked_by').$type<'auto' | 'manual' | 'source'>(),
+  /** This form's own question → field choices (on top of automatic recognition). */
+  fieldMap: jsonb('field_map').$type<FieldMap>().notNull().default({}),
+  lastHeaders: jsonb('last_headers').$type<string[]>().notNull().default([]),
+  lastLeadAt: timestamp('last_lead_at', { withTimezone: true }),
+  /** Hidden from the list; comes back by itself if it sends leads again. */
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 // ── Orders ───────────────────────────────────────────────────────────────
 
 export const orders = pgTable(
@@ -171,6 +208,9 @@ export const orders = pgTable(
     number: serial('number').notNull().unique(),
     leadId: text('lead_id').unique(),
     sourceId: integer('source_id').references(() => sources.id, { onDelete: 'set null' }),
+    formId: integer('form_id').references(() => forms.id, { onDelete: 'set null' }),
+    /** Facebook ad the lead came from (statistics per ad). */
+    adName: text('ad_name'),
     sheetName: text('sheet_name'),
     sheetRow: integer('sheet_row'),
     status: text('status').$type<OrderStatus>().notNull().default('new'),
@@ -231,6 +271,7 @@ export const orders = pgTable(
     index('orders_status_idx').on(t.status),
     index('orders_created_idx').on(t.createdAt),
     index('orders_offer_idx').on(t.offerId),
+    index('orders_form_idx').on(t.formId),
     index('orders_wilaya_idx').on(t.wilayaCode),
     index('orders_assigned_idx').on(t.assignedToId),
     index('orders_customer_idx').on(t.customerId),

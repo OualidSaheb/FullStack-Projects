@@ -200,6 +200,8 @@ export async function reorder(ctx: AppContext, id: string, status: 'new' | 'conf
       .insert(orders)
       .values({
         sourceId: o.sourceId,
+        formId: o.formId,
+        adName: o.adName,
         customerId: o.customerId,
         customerName: o.customerName,
         phone: o.phone,

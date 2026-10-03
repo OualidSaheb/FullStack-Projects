@@ -9,7 +9,7 @@ import { qk, useAdminMutation, useOffers, useSources, type SourceWithStats } fro
 import { isSourceStale } from '@/components/sync-alert';
 import { Alert, Badge, Button, Card, ConfirmDelete, EmptyState, Field, Input, Modal, PageLoader, Select, Switch, TagInput } from '@/components/ui';
 
-const DEFAULT_SOURCE: SourceInput = { name: '', type: 'google_sheet', spreadsheetId: '', formType: 'new', offerId: null, sheetNames: ['Sheet1', 'Sheet2'], importFrom: '2026-09-27', syncMinutes: 5, fieldMap: {}, active: true };
+const DEFAULT_SOURCE: SourceInput = { name: '', type: 'webhook', folderName: '', spreadsheetId: '', formType: 'new', offerId: null, sheetNames: ['Sheet1', 'Sheet2'], importFrom: '2026-09-27', syncMinutes: 5, fieldMap: {}, active: true };
 
 function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClose: () => void }) {
   const { data: offers } = useOffers();
@@ -47,7 +47,7 @@ function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClo
         <Field label="نوع المصدر" className="sm:col-span-2">
           {(id) => (
             <Select id={id} value={form.type} onChange={(e) => set('type', e.target.value as SourceInput['type'])}>
-              {Object.entries(SOURCE_TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+              {Object.entries(SOURCE_TYPES).filter(([k]) => k !== 'google_drive').map(([k, label]) => <option key={k} value={k}>{label}</option>)}
             </Select>
           )}
         </Field>
@@ -137,7 +137,7 @@ function WebhookModal({ source, onClose }: { source: SourceWithStats; onClose: (
         <Input readOnly dir="ltr" value={data?.url ?? ''} onFocus={(e) => e.target.select()} />
         <Button icon={<Copy className="size-4" />} onClick={() => data && navigator.clipboard.writeText(data.url).then(() => toast.success('تم النسخ'))}>نسخ الرابط</Button>
         <pre className="overflow-auto rounded-lg bg-ink p-4 text-xs leading-relaxed text-slate-200" dir="ltr">{example}</pre>
-        <p className="text-muted">أسماء الحقول قابلة للتغيير من «أسئلة الفورم».</p>
+        <p className="text-muted">قراءة الحقول قابلة للتصحيح من «الفورمات» (زر «تفاصيل»).</p>
       </div>
     </Modal>
   );
@@ -159,8 +159,10 @@ function SyncStatus({ source }: { source: SourceWithStats }) {
   );
 }
 
-export function SourcesTab() {
-  const { data: sources, isLoading } = useSources();
+/** Per-sheet scripts (older setup) and webhooks; the Drive folder has its own card. */
+export function SourcesTab({ hideDrive }: { hideDrive?: boolean }) {
+  const { data: all, isLoading } = useSources();
+  const sources = hideDrive ? all?.filter((s) => s.type !== 'google_drive') : all;
   const { data: offers } = useOffers();
   const [hook, setHook] = useState<SourceWithStats | null>(null);
   const [editing, setEditing] = useState<SourceWithStats | null | 'new'>(null);
@@ -170,7 +172,7 @@ export function SourcesTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted">من أين تأتي الطلبيات: ملفات Google Sheets (Facebook Lead Ads عبر Apps Script) أو رابط Webhook لأي موقع أو أداة. لا تكرار أبداً (Lead ID).</p>
+        <p className="text-sm text-muted">شيت بسكريبت خاص به (الطريقة السابقة — تبقى تعمل) أو رابط Webhook لموقع أو أداة. لا تكرار أبداً (Lead ID).</p>
         <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>مصدر جديد</Button>
       </div>
       {!sources?.length ? (

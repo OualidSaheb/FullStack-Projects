@@ -69,8 +69,11 @@ export interface StockMovementDTO {
 export interface SourceDTO {
   id: number;
   name: string;
-  type: 'google_sheet' | 'webhook';
+  type: 'google_sheet' | 'google_drive' | 'webhook';
   spreadsheetId: string;
+  folderName: string;
+  /** Drive folder: spreadsheets (and tabs) seen by the script. */
+  files: { spreadsheetId: string; name: string; tabs: { name: string; rows: number }[] }[];
   formType: 'new' | 'legacy';
   offerId: number | null;
   sheetNames: string[];
@@ -83,6 +86,33 @@ export interface SourceDTO {
   lastHeaders: string[];
   orderCount: number;
   lastSyncStats: { at: string; received: number; created: number; duplicates: number; skipped: number; errors: { row: number; sheet: string; message: string }[] } | null;
+}
+
+/** Funnel of a form / ad: how many leads became real, delivered sales. */
+export interface FunnelStats {
+  leads: number;
+  /** Still being called (new, no answer, postponed). */
+  pending: number;
+  /** Reached "confirmed" (or any later step). */
+  confirmed: number;
+  cancelled: number;
+  delivered: number;
+  returned: number;
+}
+
+export interface FormDTO {
+  id: number;
+  name: string;
+  sourceId: number | null;
+  spreadsheetId: string;
+  spreadsheetName: string;
+  sheetName: string;
+  offerId: number | null;
+  linkedBy: 'auto' | 'manual' | 'source' | null;
+  fieldMap: FieldMap;
+  lastHeaders: string[];
+  lastLeadAt: string | null;
+  stats: FunnelStats;
 }
 
 export interface CarrierDTO {

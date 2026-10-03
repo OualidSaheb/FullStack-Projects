@@ -38,5 +38,6 @@ export const ORDER_FLAGS = {
   blacklisted: 'قائمة سوداء',
   variants: 'مقاس/لون ناقص',
   stock: 'غير متوفر في المخزون',
+  repeat: 'طلب من قبل وأُرسلت له طلبية',
 } as const;
 export type OrderFlag = keyof typeof ORDER_FLAGS;

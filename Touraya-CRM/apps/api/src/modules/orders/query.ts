@@ -143,7 +143,7 @@ export function selectOrdersWithRelations<T extends SelectedFields>(db: DbOrTx, 
 type ListRow = Awaited<ReturnType<typeof selectOrdersWithRelations<{}>>>[number];
 
 export function toListItem(row: ListRow, prefix: string): OrderListItem {
-  const { number, createdAt, updatedAt, deletedAt, nextCallAt, duplicateOfId, blacklisted, missingVariants: missing, histOrders, histDelivered, histReturned, histCancelled, itemsLabel, ...rest } =
+  const { number, createdAt, updatedAt, deletedAt, nextCallAt, duplicateOfId, blacklisted, missingVariants: missing, histOrders, histDelivered, histReturned, histCancelled, histShipped, itemsLabel, ...rest } =
     row;
   const risk = customerRisk(toHistory({ histOrders, histDelivered, histReturned, histCancelled }, Boolean(blacklisted)));
   const flags: OrderFlag[] = [];
@@ -153,6 +153,8 @@ export function toListItem(row: ListRow, prefix: string): OrderListItem {
   if (missing) flags.push('variants');
   if (risk === 'blocked') flags.push('blacklisted');
   if (risk === 'risky') flags.push('risky');
+  // Ordered before and a parcel was sent: a small heads-up (re-order, or the same order twice).
+  if (histShipped > 0 && risk !== 'blocked' && risk !== 'risky') flags.push('repeat');
   return {
     ...rest,
     reference: formatReference(prefix, number),

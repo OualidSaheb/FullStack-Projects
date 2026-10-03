@@ -248,6 +248,8 @@ describe('carriers, shipping and stock', () => {
     await ingest('Sheet1', [lead('104', { full_name: 'Client 104 returns' })]);
     const next = await find('Client 104');
     expect(next.risk).toBe('watch');
+    // A parcel was already sent to this phone: small "ordered before" warning.
+    expect(next.flags).toContain('repeat');
   });
 
   it('sends parcels through the API with configurable extra fields (can_open)', async () => {
@@ -347,13 +349,14 @@ describe('fixes from the first real use', () => {
 
   it('reprocess fills empty fields after fixing the column mapping, never overwriting edits', async () => {
     const { 'الولاية': _w, 'البلدية': _c, ...rest } = lead('203', { full_name: 'Client 203' });
-    await ingest('Sheet1', [{ ...rest, 'مكان التوصيل': 'Bab Ezzouar, Alger' }]);
+    // A free-text address in an unknown column is not taken by itself (only clear answers are).
+    await ingest('Sheet1', [{ ...rest, 'مكان التوصيل': 'حي 20 أوت بوفاريك البليدة' }]);
     expect(await find('Client 203')).toMatchObject({ wilayaCode: null, communeName: null });
     // Admin maps the unknown column to "address", then reprocesses.
     await api('PUT', `/sources/${source.id}`, { ...source, fieldMap: { address: ['مكان التوصيل'] } });
     const res = (await api('POST', `/sources/${source.id}/reprocess`)).json();
     expect(res.updated).toBeGreaterThanOrEqual(1);
-    expect(await find('Client 203')).toMatchObject({ wilayaCode: 16, communeName: 'Bab Ezzouar' });
+    expect(await find('Client 203')).toMatchObject({ wilayaCode: 9, communeName: 'Boufarik' });
   });
 
   it('removes a source: stops receiving, keeps its orders', async () => {
@@ -497,8 +500,10 @@ describe('pieces, price tiers, returns and live events', () => {
     const created = (await api('POST', '/products', {
       name: 'Shirt', sku: 'SHIRT', sizes: ['M'], colors: ['أبيض'],
       tiers: [{ units: 1, price: 1500 }, { units: 2, price: 2800, name: 'shirt offer 2' }],
+      stockIn: [{ size: 'M', color: 'أبيض', quantity: 12 }],
     })).json();
     const shirt = created.find((p: { sku: string }) => p.sku === 'SHIRT');
+    expect(shirt.variants[0]).toMatchObject({ size: 'M', color: 'أبيض', stock: 12 }); // first stock entered with the product
     const tiersOf = async () => (await api('GET', '/offers')).json().filter((o: { productId: number }) => o.productId === shirt.id);
     const first = await tiersOf();
     expect(first.map((o: { units: number; price: number; carrierName: string; name: string }) => [o.units, o.price, o.carrierName, o.name])).toEqual([
@@ -517,6 +522,11 @@ describe('pieces, price tiers, returns and live events', () => {
     // Same quantity twice is refused.
     const dup = await api('PUT', `/products/${shirt.id}`, { name: 'Shirt', tiers: [{ units: 2, price: 1 }, { units: 2, price: 2 }] });
     expect(dup.statusCode).toBe(400);
+  });
+
+  it('a first-time customer has no "ordered before" warning', async () => {
+    await ingest('Sheet1', [lead('305', { full_name: 'Client 305 first', 'رقمك_الخاص_للتواصل_معاك': '0669 11 22 33', phone_number: 'p:+213669112233' })]);
+    expect((await find('Client 305')).flags).not.toContain('repeat');
   });
 
   it('pushes new orders to open browsers (live notifications)', async () => {

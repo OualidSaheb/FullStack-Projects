@@ -7,6 +7,7 @@ import type {
   CommentDTO,
   OfferDTO,
   ExportBatchDTO,
+  FormDTO,
   OrderDetail,
   OrderEventDTO,
   OrderFilter,
@@ -54,6 +55,7 @@ export const qk = {
   customer: (id: number) => ['customer', id] as const,
   users: ['users'] as const,
   sources: ['sources'] as const,
+  forms: ['forms'] as const,
   settings: ['settings'] as const,
   batches: ['batches'] as const,
   stats: (f: OrderFilter) => ['stats', f] as const,
@@ -94,6 +96,7 @@ export const useRates = (carrierId: number | undefined) =>
 export const useMovements = () => useQuery({ queryKey: qk.movements, queryFn: () => api.get<StockMovementDTO[]>('/inventory/movements') });
 export const useUsers = () => useQuery({ queryKey: qk.users, queryFn: () => api.get<UserDTO[]>('/users'), staleTime: 60_000 });
 export const useSources = () => useQuery({ queryKey: qk.sources, queryFn: () => api.get<SourceWithStats[]>('/sources') });
+export const useForms = () => useQuery({ queryKey: qk.forms, queryFn: () => api.get<FormDTO[]>('/forms'), staleTime: 30_000 });
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: () => api.get<Settings>('/settings'), staleTime: 60_000 });
 export const useBatches = () => useQuery({ queryKey: qk.batches, queryFn: () => api.get<ExportBatchDTO[]>('/shipping/exports') });
 export const useStats = (f: OrderFilter) => useQuery({ queryKey: qk.stats(f), queryFn: () => api.get<StatsDTO>('/stats', f as never), placeholderData: keepPreviousData });

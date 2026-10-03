@@ -86,6 +86,7 @@ export function useLiveEvents(enabled: boolean, notify: boolean) {
     source.addEventListener('order.created', () => {
       pending.current++;
       refreshOrders();
+      qc.invalidateQueries({ queryKey: qk.forms }); // a new form may have appeared
       // Leads often arrive in batches: one alert per batch.
       clearTimeout(timer.current);
       timer.current = setTimeout(() => {

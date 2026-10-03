@@ -142,6 +142,11 @@ export const productSchema = z.object({
     )
     .refine((t) => new Set(t.map((x) => x.units)).size === t.length, 'كل كمية مرة واحدة فقط')
     .optional(),
+  /** Pieces received, per size × color, added to the stock when the product is saved (first stock, new arrivals). */
+  stockIn: z
+    .array(z.object({ size: z.string().default(''), color: z.string().default(''), quantity: z.number().int().min(0).max(100000) }))
+    .max(2000)
+    .optional(),
 });
 export type ProductInput = z.infer<typeof productSchema>;
 export type ProductTierInput = NonNullable<z.infer<typeof productSchema>['tiers']>[number];
@@ -202,14 +207,16 @@ export const loginSchema = z.object({ email: z.string().trim().toLowerCase().ema
 export const fieldMapSchema = z.record(z.enum(LEAD_FIELDS), z.array(z.string()));
 
 export const SOURCE_TYPES = {
-  google_sheet: 'Google Sheet (Facebook Lead Ads)',
+  google_drive: 'مجلد Google Drive (كل الشيتات تلقائياً)',
+  google_sheet: 'Google Sheet واحد (طريقة قديمة)',
   webhook: 'Webhook (موقع، Make/Zapier، أي فورم)',
 } as const;
 
 export const sourceSchema = z
   .object({
     name: z.string().trim().min(1).max(120),
-    type: z.enum(['google_sheet', 'webhook']).default('google_sheet'),
+    type: z.enum(['google_sheet', 'google_drive', 'webhook']).default('google_sheet'),
+    folderName: z.string().trim().max(120).default(''),
     spreadsheetId: z.string().trim().max(120).default(''),
     formType: z.enum(['new', 'legacy']).default('new'),
     offerId: z.number().int().positive().nullable(),
@@ -219,17 +226,27 @@ export const sourceSchema = z
     fieldMap: fieldMapSchema.default({}),
     active: z.boolean().default(true),
   })
-  .refine((s) => s.type !== 'google_sheet' || s.spreadsheetId.length >= 10, { path: ['spreadsheetId'], message: 'معرف Google Sheet مطلوب' });
+  .refine((s) => s.type !== 'google_sheet' || s.spreadsheetId.length >= 10, { path: ['spreadsheetId'], message: 'معرف Google Sheet مطلوب' })
+  .refine((s) => s.type !== 'google_drive' || s.folderName.length > 0, { path: ['folderName'], message: 'اسم المجلد مطلوب' });
 export type SourceInput = z.infer<typeof sourceSchema>;
 
 /** Rows sent by the Google Apps Script or any webhook. */
 export const ingestSchema = z.object({
   sheetName: z.string().max(120),
+  /** Drive folder script: which file the rows come from. */
+  spreadsheetName: z.string().max(200).optional(),
   rows: z
     .array(z.object({ rowNumber: z.number().int().nonnegative(), values: z.record(z.string(), z.unknown()) }))
     .max(500),
 });
 export type IngestPayload = z.infer<typeof ingestSchema>;
+
+/** Linking a form to its offer, or correcting how its questions are read. */
+export const formUpdateSchema = z.object({
+  offerId: z.number().int().positive().nullable().optional(),
+  fieldMap: fieldMapSchema.optional(),
+});
+export type FormUpdate = z.infer<typeof formUpdateSchema>;
 
 // ── Carriers ─────────────────────────────────────────────────────────────
 

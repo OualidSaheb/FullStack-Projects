@@ -21,6 +21,8 @@ let cookie = '';
 let code = '';
 let spreadsheetId = '';
 let sourceId = 0;
+let driveCode = '';
+let driveId = 0;
 
 const freePort = () =>
   new Promise<number>((resolve) => {
@@ -103,6 +105,8 @@ beforeAll(async () => {
   spreadsheetId = s.spreadsheetId;
   // The exact script the admin copies from "إعداد الاستقبال".
   code = await (await fetch(`${base}/api/sources/${s.id}/apps-script`, { headers: { cookie } })).text();
+  driveId = (list as { id: number; type?: string }[]).find((x) => x.type === 'google_drive')!.id;
+  driveCode = await (await fetch(`${base}/api/sources/${driveId}/apps-script`, { headers: { cookie } })).text();
 }, 60_000);
 
 afterAll(() => {
@@ -181,5 +185,132 @@ describe('Google Apps Script (end to end)', () => {
 
   it('refuses to run when pasted into another spreadsheet', () => {
     expect(() => sandbox(sheets, { spreadsheetId: 'someone-else' }).run('setupTouraya')).toThrow();
+  });
+});
+
+/** Fake Google Drive folder: spreadsheets (id → name, tabs, last change) as the Drive script sees them. */
+type FakeFile = { name: string; updated: number; tabs: Record<string, unknown[][]> };
+
+function driveSandbox(folder: Record<string, FakeFile>, opts: { endpointOverride?: string } = {}) {
+  const props: Record<string, string> = {};
+  const posts: { file: string; sheet: string; rows: number; files?: unknown[] }[] = [];
+  const iterator = <T,>(items: T[]) => {
+    let i = 0;
+    return { hasNext: () => i < items.length, next: () => items[i++]! };
+  };
+  const files = () =>
+    Object.entries(folder).map(([id, f]) => ({ getId: () => id, getName: () => f.name, getLastUpdated: () => new Date(f.updated) }));
+  const ctx = vm.createContext({
+    DriveApp: {
+      getFoldersByName: () => iterator([{ getFilesByType: () => iterator(files()) }]),
+      createFolder: () => ({ getFilesByType: () => iterator(files()) }),
+    },
+    MimeType: { GOOGLE_SHEETS: 'sheets' },
+    SpreadsheetApp: {
+      openById: (id: string) => ({
+        getSheets: () =>
+          Object.entries(folder[id]!.tabs).map(([name, rows], k) => ({
+            getName: () => name,
+            getSheetId: () => k,
+            getLastRow: () => rows.length,
+            getLastColumn: () => rows[0]?.length ?? 0,
+            getRange: (r: number, c: number, nr: number, nc: number) => ({ getValues: () => rows.slice(r - 1, r - 1 + nr).map((x) => x.slice(c - 1, c - 1 + nc)) }),
+          })),
+      }),
+    },
+    UrlFetchApp: {
+      fetch: (url: string, o: { headers?: Record<string, string>; payload?: string } = {}) => {
+        if (!o.payload) return { getResponseCode: () => 200, getContentText: () => '' };
+        const body = JSON.parse(o.payload);
+        posts.push({ file: body.spreadsheetName ?? '', sheet: body.sheetName, rows: body.rows.length, files: body.files });
+        try {
+          const out = execFileSync('curl', ['-s', '-w', '\n%{http_code}', '-H', 'content-type: application/json', '-H', `X-Touraya-Token: ${o.headers?.['X-Touraya-Token']}`, '--data-binary', '@-', opts.endpointOverride ?? url], { input: o.payload }).toString();
+          const i = out.lastIndexOf('\n');
+          return { getResponseCode: () => Number(out.slice(i + 1)), getContentText: () => out.slice(0, i) };
+        } catch {
+          throw new Error('Address unavailable');
+        }
+      },
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperties: () => ({ ...props }),
+        getProperty: (k: string) => props[k] ?? null,
+        setProperty: (k: string, v: string) => { props[k] = v; },
+        deleteProperty: (k: string) => { delete props[k]; },
+      }),
+    },
+    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
+    ScriptApp: { getProjectTriggers: () => [], deleteTrigger: () => {}, newTrigger: () => ({ timeBased: () => ({ everyMinutes: () => ({ create: () => {} }) }) }) },
+    Logger: { log: () => {} },
+  });
+  vm.runInContext(driveCode, ctx);
+  return { run: (fn: string) => vm.runInContext(`${fn}()`, ctx), props, posts };
+}
+
+describe('Drive folder script: one script for every form (end to end)', () => {
+  const head = ['id', 'created_time', 'ad_name', 'form_id', 'form_name', 'full_name', 'phone_number', 'رقمك_الخاص_للتواصل_معاك', 'conditional_question_1', 'conditional_question_2'];
+  const lead = (id: string, form: [string, string], phone: string) => [`l:${id}`, new Date('2026-09-30T10:00:00Z'), 'video 1', form[0], form[1], `Drive ${id}`, `p:+213${phone}`, `0${phone}`, 'وهران', 'بئر الجير'];
+  const formA: [string, string] = ['f:101', 'pants 2pcs 3500 - test A'];
+  const formB: [string, string] = ['f:102', 'pants 2pcs 3500 - test B (short)'];
+  const unknown: [string, string] = ['f:103', 'summer promo'];
+  const folder: Record<string, FakeFile> = {
+    fileA: { name: 'Pants A', updated: 1, tabs: { Sheet1: [head, lead('d1', formA, '771000001'), lead('d2', formA, '771000002')], Notes: [['note'], ['not a lead']] } },
+    fileB: { name: 'Pants B', updated: 1, tabs: { Sheet1: [head, lead('d3', formB, '771000003')] } },
+  };
+  let gas: ReturnType<typeof driveSandbox>;
+  const forms = () => api<{ id: number; name: string; offerId: number | null; linkedBy: string | null; stats: { leads: number } }[]>('/forms');
+
+  it('setup reads every spreadsheet and tab of the folder, links forms to offers by their name', async () => {
+    expect(driveCode).toContain('"folderName": "Touraya Leads"');
+    gas = driveSandbox(folder);
+    expect(gas.run('setupTouraya')).toMatchObject({ ok: true, files: 2, created: 3 });
+    const list = await forms();
+    const a = list.find((f) => f.name === formA[1])!;
+    const b = list.find((f) => f.name === formB[1])!;
+    expect(a).toMatchObject({ linkedBy: 'auto', stats: { leads: 2 } });
+    expect(b.offerId).toBe(a.offerId); // two forms tested for the same offer
+    expect(list.some((f) => f.name.includes('Notes'))).toBe(false); // a tab without leads is no form
+    const order = (await api<{ items: { id: string; customerName: string }[] }>('/orders?q=Drive%20d3')).items[0]!;
+    // conditional_question_1 / _2 read as wilaya / commune from their answers.
+    expect(await api(`/orders/${order.id}`)).toMatchObject({ wilayaCode: 31, communeName: 'Bir El Djir', offerName: 'pants 2pcs 3500', price: 3500, units: 2 });
+    // The folder content is shown in the platform.
+    const drive = (await api<{ id: number; files: { name: string; tabs: { name: string }[] }[] }[]>('/sources')).find((s) => s.id === driveId)!;
+    expect(drive.files.map((f) => f.name).sort()).toEqual(['Pants A', 'Pants B']);
+  });
+
+  it('unchanged files are not opened again; a new row or a new file is picked up by itself', async () => {
+    gas.posts.length = 0;
+    expect(gas.run('syncTouraya')).toMatchObject({ sent: 0 });
+    expect(gas.posts).toEqual([]);
+    folder.fileA!.tabs.Sheet1!.push(lead('d4', formA, '771000004'));
+    folder.fileA!.updated = 2;
+    folder.fileC = { name: 'Promo', updated: 1, tabs: { Sheet1: [head, lead('d5', unknown, '771000005')] } };
+    expect(gas.run('syncTouraya')).toMatchObject({ sent: 2, created: 2 });
+    expect(gas.posts.map((p) => `${p.file}:${p.rows}`).sort()).toEqual(['Pants A:1', 'Promo:1']);
+  });
+
+  it('a form with an unknown name waits for its link; linking it fixes its orders', async () => {
+    const promo = (await forms()).find((f) => f.name === 'summer promo')!;
+    expect(promo).toMatchObject({ offerId: null, linkedBy: null });
+    const order = (await api<{ items: { id: string; offerId: number | null }[] }>('/orders?q=Drive%20d5')).items[0]!;
+    expect(order.offerId).toBeNull();
+    const offers = await api<{ id: number; name: string }[]>('/offers');
+    const three = offers.find((o) => o.name === 'pants 3pcs 4999')!;
+    const res = await fetch(`${base}/api/forms/${promo.id}`, { method: 'PUT', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ offerId: three.id }) });
+    expect(await res.json()).toMatchObject({ relinked: 1 });
+    expect(await api(`/orders/${order.id}`)).toMatchObject({ offerName: 'pants 3pcs 4999', price: 4999, units: 3 });
+  });
+
+  it('keeps rows while the platform is down and delivers them when it is back', async () => {
+    folder.fileB!.tabs.Sheet1!.push(lead('d6', formB, '771000006'));
+    folder.fileB!.updated = 2;
+    const down = driveSandbox(folder, { endpointOverride: 'http://127.0.0.1:9/api/ingest/sheets' });
+    Object.assign(down.props, gas.props);
+    expect(down.run('syncTouraya')).toMatchObject({ ok: false });
+    const up = driveSandbox(folder);
+    Object.assign(up.props, down.props);
+    expect(up.run('syncTouraya')).toMatchObject({ ok: true, created: 1 });
+    expect((await api<{ items: unknown[] }>('/orders?q=Drive%20d6')).items).toHaveLength(1);
   });
 });

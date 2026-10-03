@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { RESERVING_STATUSES, type OfferDTO, type ProductDTO, type ProductInput, type ProductTierInput, type Tier, type VariantDTO } from '@touraya/shared';
 import type { DbOrTx } from '../../db/client';
+import { moveStock } from '../inventory/service';
 import { offers, orderItems, orders, products, variants } from '../../db/schema';
 
 type ProductRow = typeof products.$inferSelect;
@@ -65,13 +66,21 @@ export async function listProducts(db: DbOrTx): Promise<ProductDTO[]> {
   }));
 }
 
-export async function saveProduct(db: DbOrTx, input: ProductInput, id?: number) {
-  const { tiers, ...fields } = input;
+export async function saveProduct(db: DbOrTx, input: ProductInput, id?: number, actorId: number | null = null) {
+  const { tiers, stockIn, ...fields } = input;
   const [row] = id
     ? await db.update(products).set({ ...fields, updatedAt: new Date() }).where(eq(products.id, id)).returning()
     : await db.insert(products).values(fields).returning();
   if (row) await syncVariants(db, row);
   if (row && tiers) await syncTiers(db, row, tiers);
+  if (row && stockIn?.some((s) => s.quantity > 0)) {
+    const all = await db.select().from(variants).where(and(eq(variants.productId, row.id), eq(variants.active, true)));
+    const moves = stockIn.flatMap((s) => {
+      const v = all.find((x) => x.size === s.size && x.color === s.color);
+      return v && s.quantity > 0 ? [{ variantId: v.id, type: 'purchase' as const, quantity: s.quantity, note: 'دخول سلعة من بطاقة المنتج', actorId }] : [];
+    });
+    await moveStock(db, moves);
+  }
   return row;
 }
 

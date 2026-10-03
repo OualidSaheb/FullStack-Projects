@@ -27,7 +27,8 @@
 | `customers` | الزبون حسب الهاتف، السجل، القائمة السوداء |
 | `carriers` | الشركات، المحولات (`registry.ts`)، الأسعار |
 | `shipping` | المراجعة، الملف، الإرسال عبر API، Webhooks |
-| `sources` | المصادر وكود Apps Script |
+| `sources` | الاتصالات: مجلد Drive (سكريبت واحد لكل الشيتات)، شيت بسكريبت خاص، Webhook |
+| `forms` | فورمات Facebook المكتشفة تلقائياً (`form_id` ← الاسم ← الورقة)، كل فورم مربوط بعرض + قراءة أسئلته؛ `orders.form_id` و `orders.ad_name` للإحصائيات |
 | `stats`, `settings`, `users`, `auth` | — |
 
 ## نقاط التوسع
@@ -38,7 +39,7 @@
 3. سجله في `registry.ts`. لا شيء آخر يتغير.
 
 ### مصدر طلبيات جديد
-- أي موقع أو أداة: مصدر من نوع **Webhook** — `POST /api/ingest/:token` بأي JSON (طلبية، قائمة، أو `{rows}`)، والحقول تطابق من «أسئلة الفورم».
+- أي موقع أو أداة: مصدر من نوع **Webhook** — `POST /api/ingest/:token` بأي JSON (طلبية، قائمة، أو `{rows}`)، والحقول تُقرأ تلقائياً ويمكن تصحيحها لكل فورم («تفاصيل» الفورم).
 - Shopify / WooCommerce / YouCan: Webhook الطلبيات الجديدة ← نفس الرابط (عبر Make أو مباشرة).
 - Facebook Lead Ads مباشرة (بدون Google Sheets): يحتاج تطبيق Meta + صلاحية `leads_retrieval` + توثيق النشاط. نفس الـ pipeline؛ فقط محول يجلب الـ lead من Graph API عند وصول Webhook من Meta. **التوصية الآن**: إبقاء Google Sheets (مجاني، مستقر، بدون مراجعة Meta) واستعمال Webhook للمواقع.
 

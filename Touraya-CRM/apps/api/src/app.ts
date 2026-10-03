@@ -21,6 +21,7 @@ import { liveRoutes } from './modules/live/routes';
 import { settingsRoutes } from './modules/settings/routes';
 import { carrierWebhookRoutes, shippingRoutes } from './modules/shipping/routes';
 import { sourceRoutes } from './modules/sources/routes';
+import { formRoutes } from './modules/forms/routes';
 import { statsRoutes } from './modules/stats/routes';
 import { userRoutes } from './modules/users/routes';
 
@@ -61,6 +62,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
       await api.register(carrierRoutes);
       await api.register(userRoutes);
       await api.register(sourceRoutes);
+      await api.register(formRoutes);
       await api.register(ingestRoutes);
       await api.register(shippingRoutes);
       await api.register(statsRoutes);

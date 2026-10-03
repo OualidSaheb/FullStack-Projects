@@ -1,5 +1,5 @@
 import { and, eq, gte, isNull, ne, sql } from 'drizzle-orm';
-import { isValidPhone, type CustomerHistory } from '@touraya/shared';
+import { isValidPhone, SHIPPED_STATUSES, type CustomerHistory } from '@touraya/shared';
 import type { DbOrTx } from '../../db/client';
 import { customers, orders } from '../../db/schema';
 
@@ -20,6 +20,8 @@ export const historyColumns = (customerIdSql: ReturnType<typeof sql>, excludeOrd
   histDelivered: sql<number>`(select count(*)::int from orders o2 where o2.customer_id = ${customerIdSql} and o2.id <> ${excludeOrderIdSql} and o2.deleted_at is null and o2.status = 'delivered')`,
   histReturned: sql<number>`(select count(*)::int from orders o2 where o2.customer_id = ${customerIdSql} and o2.id <> ${excludeOrderIdSql} and o2.deleted_at is null and o2.status in ('returned', 'return_received'))`,
   histCancelled: sql<number>`(select count(*)::int from orders o2 where o2.customer_id = ${customerIdSql} and o2.id <> ${excludeOrderIdSql} and o2.deleted_at is null and o2.status = 'cancelled')`,
+  /** Other orders already sent to this customer (a parcel left the warehouse). */
+  histShipped: sql<number>`(select count(*)::int from orders o2 where o2.customer_id = ${customerIdSql} and o2.id <> ${excludeOrderIdSql} and o2.deleted_at is null and o2.status in (${sql.raw(SHIPPED_STATUSES.map((s) => `'${s}'`).join(', '))}))`,
 });
 
 export function toHistory(r: { histOrders: number; histDelivered: number; histReturned: number; histCancelled: number }, blacklisted: boolean): CustomerHistory {

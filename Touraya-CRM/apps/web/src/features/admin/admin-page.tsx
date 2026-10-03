@@ -1,21 +1,19 @@
 import { NavLink, Navigate, useParams } from 'react-router';
-import { FileInput, ListChecks, Package, Settings2, Sheet, Truck, Users } from 'lucide-react';
+import { FileInput, Package, Settings2, Sheet, Truck, Users } from 'lucide-react';
 import type { Permission } from '@touraya/shared';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { PageHeader } from '@/components/ui';
 import { ImportTab } from './import-tab';
-import { MappingTab } from './mapping-tab';
 import { CatalogTab } from './catalog-tab';
 import { CarriersTab } from './carriers-tab';
 import { SettingsTab } from './settings-tab';
-import { SourcesTab } from './sources-tab';
+import { ReceivingTab } from './receiving-tab';
 import { UsersTab } from './users-tab';
 
 const TABS: { key: string; label: string; icon: typeof Sheet; permission: Permission; element: () => React.ReactNode }[] = [
-  { key: 'catalog', label: 'المنتجات والعروض', icon: Package, permission: 'products.manage', element: () => <CatalogTab /> },
-  { key: 'sources', label: 'المصادر', icon: Sheet, permission: 'sources.manage', element: () => <SourcesTab /> },
-  { key: 'fields', label: 'أسئلة Facebook', icon: ListChecks, permission: 'sources.manage', element: () => <MappingTab /> },
+  { key: 'catalog', label: 'المنتجات والأسعار', icon: Package, permission: 'products.manage', element: () => <CatalogTab /> },
+  { key: 'sources', label: 'استقبال الطلبيات والفورمات', icon: Sheet, permission: 'sources.manage', element: () => <ReceivingTab /> },
   { key: 'import', label: 'استيراد القديم', icon: FileInput, permission: 'sources.manage', element: () => <ImportTab /> },
   { key: 'users', label: 'الموظفون', icon: Users, permission: 'users.manage', element: () => <UsersTab /> },
   { key: 'carriers', label: 'شركات التوصيل', icon: Truck, permission: 'settings.manage', element: () => <CarriersTab /> },

@@ -4,6 +4,7 @@ import type { Db } from './db/client';
 import { carriers, offers, products, sources, users, variants } from './db/schema';
 import { hashPassword, randomToken } from './lib/crypto';
 import { syncVariants } from './modules/catalog/service';
+import { backfillForms } from './modules/forms/service';
 import { ingestRows } from './modules/ingest/service';
 import { moveStock } from './modules/inventory/service';
 
@@ -35,6 +36,9 @@ const SOURCES = [
 
 const isEmpty = async (db: Db, table: typeof users | typeof products | typeof sources | typeof carriers) =>
   ((await db.select({ n: count() }).from(table))[0]?.n ?? 0) === 0;
+
+/** Default Drive folder read by the single Apps Script. */
+export const DRIVE_FOLDER = 'Touraya Leads';
 
 /** Idempotent first-run setup: admin account, catalog, default carrier and sources. */
 export async function ensureBootstrap(db: Db, log: (msg: string) => void = console.log) {
@@ -71,6 +75,16 @@ export async function ensureBootstrap(db: Db, log: (msg: string) => void = conso
       })),
     );
   }
+
+  // One Drive folder connection for every new form/sheet (added to existing installs too).
+  const [drive] = await db.select({ id: sources.id }).from(sources).where(eq(sources.type, 'google_drive'));
+  if (!drive) {
+    await db.insert(sources).values({ name: 'Google Drive — Touraya Leads', type: 'google_drive', folderName: DRIVE_FOLDER, importFrom: DEFAULT_IMPORT_FROM, token: randomToken() });
+  }
+
+  // Orders imported before forms existed get their form (statistics per form cover the history).
+  const linked = await backfillForms(db);
+  if (linked) log(`Linked ${linked} existing orders to their Facebook forms`);
 }
 
 /** Fake options, stock and leads to try the UI locally (npm run db:seed -- --demo). */

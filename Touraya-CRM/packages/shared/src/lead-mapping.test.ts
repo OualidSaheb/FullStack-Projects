@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLeadRow, resolveHeaders } from './lead-mapping';
+import { formIdentity, parseLeadRow, resolveHeaders } from './lead-mapping';
 
 const newFormRow = {
   id: 'l:1234567890123',
@@ -48,5 +48,38 @@ describe('loose matching', () => {
     const headers = resolveHeaders(['ad_name', 'form_name', 'الاسم_و_اللقب_بالكامل']);
     expect(headers.adName).toBe('ad_name');
     expect(headers.fullName).toBe('الاسم_و_اللقب_بالكامل');
+  });
+
+  it('recognises conditional questions (wilaya → commune) by their answers', () => {
+    const row = {
+      id: 'l:99',
+      form_id: 'f:555',
+      form_name: 'skirt 2pcs 3600 - B',
+      adset_name: 'Alger 25-45',
+      conditional_question_1: 'البليدة',
+      conditional_question_2: 'بوفاريك',
+      'اختر_المقاس': 'L',
+      full_name: 'Sara',
+      phone_number: 'p:+213661234567',
+    };
+    const { values, matchedHeaders, inferred } = parseLeadRow(row);
+    expect(values.wilaya).toBe('البليدة');
+    expect(values.commune).toBe('بوفاريك');
+    expect(matchedHeaders.wilaya).toBe('conditional_question_1');
+    expect(inferred).toEqual(['wilaya', 'commune']);
+    expect(values.formId).toBe('555');
+  });
+
+  it('never takes "2 قطع" or Facebook columns for a wilaya', () => {
+    const { values } = parseLeadRow({ id: 'l:1', adset_name: '16', campaign_name: 'Oran', conditional_question_1: '2 قطع', full_name: 'X' });
+    expect(values.wilaya).toBeUndefined();
+    expect(parseLeadRow({ id: 'l:2', conditional_question_1: '16 - Alger' }).values.wilaya).toBe('16 - Alger');
+  });
+
+  it('identifies the form by form_id, then name, then sheet tab', () => {
+    const where = { spreadsheetId: 'SS1', spreadsheetName: 'Skirt leads', sheetName: 'Sheet1', sourceId: 3, sourceName: 'Drive' };
+    expect(formIdentity({ formId: '555', formName: 'skirt' }, where).key).toBe('fb:555');
+    expect(formIdentity({ formName: 'Skirt 2PCS 3600' }, where).key).toBe(formIdentity({ formName: 'skirt 2pcs 3600' }, where).key);
+    expect(formIdentity({}, where)).toEqual({ key: 'sheet:SS1:Sheet1', name: 'Skirt leads / Sheet1' });
   });
 });

@@ -7,6 +7,7 @@ import { randomToken } from '../../lib/crypto';
 import { notFound } from '../../lib/errors';
 import { ingestRows, reprocessSource } from '../ingest/service';
 import { renderAppsScript } from './apps-script';
+import { renderDriveScript } from './drive-script';
 
 const idParams = z.object({ id: z.coerce.number().int() });
 
@@ -87,6 +88,16 @@ export const sourceRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/sources/:id/apps-script', manage, async (req, reply) => {
     const s = await load(idParams.parse(req.params).id);
+    if (s.type === 'google_drive') {
+      const drive = renderDriveScript({
+        endpoint: `${publicUrl(app, req)}/api/ingest/sheets`,
+        token: s.token,
+        folderName: s.folderName,
+        startDate: s.importFrom,
+        syncMinutes: s.syncMinutes,
+      });
+      return reply.type('text/plain; charset=utf-8').send(drive);
+    }
     const code = renderAppsScript({
       sourceName: s.name,
       endpoint: `${publicUrl(app, req)}/api/ingest/sheets`,

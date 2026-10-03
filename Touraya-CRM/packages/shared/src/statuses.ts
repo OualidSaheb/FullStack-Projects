@@ -81,6 +81,25 @@ export const RESERVING_STATUSES: OrderStatus[] = ['confirmed'];
 /** Statuses from which an order may be included in a carrier export. */
 export const EXPORTABLE_STATUSES: OrderStatus[] = ['confirmed', 'ready_for_carrier'];
 
+/** Shipped at least once (left the warehouse): used to warn about returning customers. */
+export const SHIPPED_STATUSES: OrderStatus[] = ['sent_to_carrier', 'carrier_received', 'delivered', 'returned', 'return_received'];
+
+/** Reached "confirmed" or any later step of the delivery. */
+export const CONFIRMED_OR_LATER: OrderStatus[] = ['confirmed', 'ready_for_carrier', 'sent_to_carrier', 'carrier_received', 'delivered', 'returned', 'return_received'];
+
+/** Lead → confirmed → delivered funnel from order counts per status (forms, ads, offers). */
+export function funnelOf(counts: Partial<Record<OrderStatus, number>>) {
+  const sum = (list: readonly OrderStatus[]) => list.reduce((n, s) => n + (counts[s] ?? 0), 0);
+  return {
+    leads: sum(ORDER_STATUSES),
+    pending: sum(QUEUE_STATUSES),
+    confirmed: sum(CONFIRMED_OR_LATER),
+    cancelled: counts.cancelled ?? 0,
+    delivered: counts.delivered ?? 0,
+    returned: sum(['returned', 'return_received']),
+  };
+}
+
 export function isOrderStatus(value: unknown): value is OrderStatus {
   return typeof value === 'string' && (ORDER_STATUSES as readonly string[]).includes(value);
 }

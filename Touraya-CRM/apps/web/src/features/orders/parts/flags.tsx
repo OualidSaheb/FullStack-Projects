@@ -1,4 +1,4 @@
-import { AlertTriangle, Copy, MapPinOff, PackageX, ShieldAlert, Shirt, UserX } from 'lucide-react';
+import { AlertTriangle, Copy, History, MapPinOff, PackageX, ShieldAlert, Shirt, UserX } from 'lucide-react';
 import { ORDER_FLAGS, RISK_META, type CustomerRiskLevel, type OrderFlag } from '@touraya/shared';
 import { Badge } from '@/components/ui';
 
@@ -10,6 +10,7 @@ const FLAG_ICONS: Record<OrderFlag, typeof AlertTriangle> = {
   blacklisted: UserX,
   variants: Shirt,
   stock: PackageX,
+  repeat: History,
 };
 
 const FLAG_TONE: Record<OrderFlag, 'warn' | 'danger'> = {
@@ -20,6 +21,7 @@ const FLAG_TONE: Record<OrderFlag, 'warn' | 'danger'> = {
   risky: 'danger',
   blacklisted: 'danger',
   stock: 'danger',
+  repeat: 'warn',
 };
 
 /** Problems that need attention before/while calling. Icon + text, never color alone. */
