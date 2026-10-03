@@ -110,7 +110,7 @@ function DriveCard({ source }: { source: SourceWithStats }) {
  */
 export function ReceivingTab() {
   const { data: sources, isLoading } = useSources();
-  const [others, setOthers] = useState(false);
+  const [others, setOthers] = useState(true);
   if (isLoading) return <PageLoader />;
   const drive = sources?.find((s) => s.type === 'google_drive');
   const legacy = sources?.filter((s) => s.type !== 'google_drive' && s.type !== 'facebook') ?? [];

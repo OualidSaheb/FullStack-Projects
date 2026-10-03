@@ -168,6 +168,8 @@ export function SourcesTab({ hideDrive }: { hideDrive?: boolean }) {
   const [hook, setHook] = useState<SourceWithStats | null>(null);
   const [editing, setEditing] = useState<SourceWithStats | null | 'new'>(null);
   const [setup, setSetup] = useState<SourceWithStats | null>(null);
+  // Pause / resume in one tap (the sheet's script keeps its rows meanwhile).
+  const toggle = useAdminMutation(qk.sources, ({ source, active }: { source: SourceWithStats; active: boolean }) => api.put(`/sources/${source.id}`, { ...source, active }), 'تم الحفظ');
   if (isLoading) return <PageLoader />;
 
   return (
@@ -194,7 +196,8 @@ export function SourcesTab({ hideDrive }: { hideDrive?: boolean }) {
                     {offers?.find((o) => o.id === s.offerId)?.name ?? 'بدون عرض افتراضي'} · {s.type === 'google_sheet' ? s.sheetNames.join(' + ') : 'Webhook'} · من {s.importFrom} · <b>{s.orderCount}</b> طلبية
                   </p>
                 </div>
-                <div className="flex shrink-0 gap-1">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <Switch checked={s.active} onChange={(active) => toggle.mutate({ source: s, active })} label={s.active ? 'يستقبل' : 'متوقف'} />
                   <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => setEditing(s)}>تعديل</Button>
                   <Button size="sm" variant="primary" icon={<Settings className="size-3.5" />} onClick={() => (s.type === 'webhook' ? setHook(s) : setSetup(s))}>إعداد الاستقبال</Button>
                 </div>
