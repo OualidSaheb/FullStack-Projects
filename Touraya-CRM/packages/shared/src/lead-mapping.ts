@@ -184,6 +184,21 @@ const PIECE_WORDS: Partial<Record<LeadField, string[]>> = {
   size: ['مقاس', 'قياس', 'size', 'taille', 'pointure'],
 };
 
+const ORDINALS: [RegExp, number][] = [
+  [/(^| )(ال)?(اول|اولي)($| )|first|premier|premiere/, 1],
+  [/(^| )(ال)?ثانيه?($| )|second|deuxieme/, 2],
+  [/(^| )(ال)?ثالثه?($| )|third|troisieme/, 3],
+  [/(^| )(ال)?رابعه?($| )|fourth|quatrieme/, 4],
+  [/(^| )(ال)?خامسه?($| )|fifth|cinquieme/, 5],
+];
+/** Piece number written in a question title (1, "الأول", "الثانية", "second"…); 99 when none. */
+function pieceRank(header: string): number {
+  const h = normalizeText(header);
+  const digit = /(\d+)/.exec(h);
+  if (digit) return Number(digit[1]);
+  return ORDINALS.find(([re]) => re.test(h))?.[1] ?? 99;
+}
+
 /**
  * One question per piece: Facebook's Google Sheet keeps a single answer of a
  * "select all that apply" question, so forms ask "لون القطعة 1", "لون القطعة 2"…
@@ -197,6 +212,8 @@ function joinPerPieceQuestions(row: Record<string, unknown>, values: LeadValues,
       (h) => h === matched[field] || (!usedElsewhere.has(h) && !META_COLUMNS.has(normalizeText(h)) && normalizedKeys.some((k) => normalizeText(h).includes(k))),
     );
     if (headers.length < 2) continue;
+    // "اللون الأول / الثاني…" or "القطعة 1 / 2…": piece order from the title, else column order.
+    headers.sort((a, b) => pieceRank(a) - pieceRank(b));
     const answers = headers.map((h) => (row[h] === null || row[h] === undefined ? '' : String(row[h]).trim())).filter(Boolean);
     if (answers.length) values[field] = answers.join(' | ');
     matched[field] ??= headers[0];

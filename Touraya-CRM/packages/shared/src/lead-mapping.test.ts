@@ -99,4 +99,9 @@ describe('loose matching', () => {
   it('one color question stays as it is', () => {
     expect(parseLeadRow({ id: 'l:8', 'اختاري_الالوان': 'أسود_رمادي' }).values.colors).toBe('أسود_رمادي');
   });
+
+  it('"اختاري اللون الأول / الثاني / الثالث": colors in piece order, whatever the column order', () => {
+    const { values } = parseLeadRow({ id: 'l:9', 'اختاري_اللون_الثاني': 'البيج', 'اختاري_اللون_الأول': 'الأسود', 'اختاري_اللون_الثالث': 'الأحمر', full_name: 'Z' });
+    expect(values.colors).toBe('الأسود | البيج | الأحمر');
+  });
 });
