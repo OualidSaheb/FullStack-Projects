@@ -145,6 +145,8 @@ export interface MetaConfig {
   connectedAt: string | null;
   lastPollAt: string | null;
   lastError: string | null;
+  /** Last notification received from Meta (any), to tell "nothing arrives" from "refused". */
+  lastWebhookAt?: string | null;
 }
 
 export const sources = pgTable('sources', {

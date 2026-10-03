@@ -16,6 +16,7 @@ interface MetaStatus {
   lastPollAt: string | null;
   lastError: string | null;
   lastSyncAt: string | null;
+  lastWebhookAt: string | null;
 }
 
 /**
@@ -77,6 +78,18 @@ export function FacebookCard() {
               {status.lastSyncAt && <span className="text-muted" title={fmtDateTime(status.lastSyncAt)}>· آخر نشاط {timeAgo(status.lastSyncAt)}</span>}
             </p>
             <p className="text-xs text-muted">الطلبيات تصل خلال ثوانٍ، وتُراجع كل الفورمات كل 10 دقائق احتياطاً. كل إجابات الأسئلة متعددة الاختيار تصل كاملة.</p>
+            <ul className="space-y-1 text-xs">
+              <li>
+                آخر إشعار فوري من Facebook:{' '}
+                {status.lastWebhookAt ? <b title={fmtDateTime(status.lastWebhookAt)}>{timeAgo(status.lastWebhookAt)}</b> : <b className="text-warn">لم يصل أي إشعار بعد</b>}
+              </li>
+              <li>آخر مراجعة للفورمات: {status.lastPollAt ? <b title={fmtDateTime(status.lastPollAt)}>{timeAgo(status.lastPollAt)}</b> : '—'}</li>
+            </ul>
+            {!status.lastWebhookAt && (
+              <p className="text-xs text-muted">
+                إذا لم يصل أي إشعار بعد طلبية تجريبية: تأكد أن التطبيق في وضع <b>Live</b> في Meta for Developers. الطلبيات تصل على كل حال عبر «سحب الآن» والمراجعة كل 10 دقائق.
+              </p>
+            )}
           </>
         )}
         {status?.lastError && (

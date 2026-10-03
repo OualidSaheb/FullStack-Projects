@@ -638,10 +638,12 @@ describe('Facebook Lead Ads connected directly', () => {
     const body = JSON.stringify({ object: 'page', entry: [{ id: 'PAGE1', changes: [{ field: 'leadgen', value: { leadgen_id: 'L2', page_id: 'PAGE1', form_id: 'F1' } }] }] });
     const forged = await app.inject({ method: 'POST', url: '/api/meta/webhook', payload: body, headers: { 'content-type': 'application/json', 'x-hub-signature-256': 'sha256=00' } });
     expect(forged.statusCode).toBe(403);
+    expect((await api('GET', '/meta')).json().lastError).toContain('App Secret'); // the admin sees why
     const ok = await app.inject({ method: 'POST', url: '/api/meta/webhook', payload: body, headers: { 'content-type': 'application/json', 'x-hub-signature-256': sign(body) } });
     expect(ok.statusCode).toBe(200);
     for (let i = 0; i < 50 && !(await find('FB direct 2')); i++) await new Promise((r) => setTimeout(r, 20));
     expect(await find('FB direct 2')).toMatchObject({ customerName: 'FB direct 2' });
+    expect((await api('GET', '/meta')).json()).toMatchObject({ lastError: null, lastWebhookAt: expect.any(String) });
   });
 
   it('the same lead coming again from the Google Sheet is not duplicated', async () => {

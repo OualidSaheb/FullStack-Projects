@@ -79,6 +79,7 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
       connectedAt: s?.config.connectedAt ?? null,
       lastPollAt: s?.config.lastPollAt ?? null,
       lastError: s?.config.lastError ?? null,
+      lastWebhookAt: s?.config.lastWebhookAt ?? null,
       lastSyncAt: s?.lastSyncAt?.toISOString() ?? null,
     };
   });
@@ -116,9 +117,16 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
   app.post('/meta/webhook', async (req, reply) => {
     const source = await facebookSource(app.db);
     const raw = (req as unknown as { rawBody?: string }).rawBody ?? '';
-    if (!source?.active || !(await validSignature(app.secrets, source, raw, req.headers['x-hub-signature-256'] as string | undefined))) {
+    if (!source?.active) throw new HttpError(403, 'not connected');
+    const now = new Date().toISOString();
+    if (!(await validSignature(app.secrets, source, raw, req.headers['x-hub-signature-256'] as string | undefined))) {
+      await setStatus(app, source, {
+        lastWebhookAt: now,
+        lastError: 'وصل إشعار من Facebook لكن توقيعه غير صحيح: الـ App Secret الملصق في المنصة ليس سر تطبيق Touraya CRM. اضغط «تغيير» وأعد الربط بالـ App Secret الصحيح.',
+      }).catch(() => {});
       throw new HttpError(403, 'bad signature');
     }
+    await setStatus(app, source, { lastWebhookAt: now, lastError: null }).catch(() => {});
     const body = req.body as { entry?: { changes?: { field?: string; value?: { leadgen_id?: string; page_id?: string } }[] }[] };
     const leadIds = (body.entry ?? []).flatMap((e) =>
       (e.changes ?? []).flatMap((c) => (c.field === 'leadgen' && c.value?.leadgen_id && (!c.value.page_id || c.value.page_id === source.config.pageId) ? [c.value.leadgen_id] : [])),
