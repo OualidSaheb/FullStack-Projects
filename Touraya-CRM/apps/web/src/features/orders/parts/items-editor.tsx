@@ -148,6 +148,11 @@ export function ItemsEditor({ order }: { order: OrderDetail }) {
           </span>
           <IconButton label="قطعة أخرى" icon={<Plus className="size-4" />} disabled={locked} onClick={() => save([...items, { ...items[items.length - 1]!, quantity: 1 }])} />
         </div>
+        {product.sizes.length === 1 && (
+          <span className="rounded-lg bg-subtle px-2.5 py-1 text-sm">
+            المقاس <b className="ltr">{product.sizes[0]}</b>
+          </span>
+        )}
         <span className="text-xs text-muted" aria-live="polite">
           {saving ? (
             <span className="inline-flex items-center gap-1"><Loader2 className="size-3.5 animate-spin" /> حفظ…</span>
@@ -163,14 +168,14 @@ export function ItemsEditor({ order }: { order: OrderDetail }) {
           const incomplete = (product.sizes.length && !item.size) || (product.colors.length && !item.color);
           const returned = order.items[i]?.returnCondition;
           return (
-            <li key={i} className={cn('flex items-center gap-2 rounded-xl border p-2', incomplete ? 'border-warn/50 bg-warn/5' : 'border-line')}>
+            <li key={i} className={cn('flex flex-wrap items-center gap-2 rounded-xl border p-2', incomplete ? 'border-warn/50 bg-warn/5' : 'border-line')}>
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-subtle text-xs font-semibold">{i + 1}</span>
-              {product.sizes.length > 0 && (
+              {product.sizes.length > 1 && (
                 <InlineSelect
                   disabled={locked}
-                  className="h-10 w-20 shrink-0 text-center"
+                  className="h-10 w-24 shrink-0 text-center"
                   value={item.size}
-                  placeholder="المقاس"
+                  placeholder="مقاس؟"
                   tone={!item.size ? 'warn' : undefined}
                   options={sizeOptions(item.size)}
                   onSave={(v) => (v === NEW ? setNewOption({ kind: 'size', index: i }) : setPiece(i, { size: v }))}
@@ -180,7 +185,7 @@ export function ItemsEditor({ order }: { order: OrderDetail }) {
               {product.colors.length > 0 ? (
                 <InlineSelect
                   disabled={locked}
-                  className="h-10 min-w-0 flex-1"
+                  className="h-10 min-w-44 flex-1"
                   value={item.color}
                   placeholder="اللون"
                   tone={!item.color ? 'warn' : undefined}

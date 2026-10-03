@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { loadConfig } from './config';
 import { openDatabase, type Database } from './db/client';
 import { products, sources } from './db/schema';
 import { buildApp } from './app';
-import { ensureBootstrap } from './seed';
+import { ensureBootstrap, fillSingleOptions } from './seed';
 
 let app: FastifyInstance;
 let database: Database;
@@ -527,6 +527,22 @@ describe('pieces, price tiers, returns and live events', () => {
   it('a first-time customer has no "ordered before" warning', async () => {
     await ingest('Sheet1', [lead('305', { full_name: 'Client 305 first', 'رقمك_الخاص_للتواصل_معاك': '0669 11 22 33', phone_number: 'p:+213669112233' })]);
     expect((await find('Client 305')).flags).not.toContain('repeat');
+  });
+
+  it('a product with one size: pieces always carry it (new and old orders)', async () => {
+    const list = (await api('POST', '/products', { name: 'Skirt', sku: 'SKIRT', sizes: ['Standard'], colors: ['أسود', 'بيج'], tiers: [{ units: 1, price: 2200 }] })).json();
+    const skirt = list.find((p: { sku: string }) => p.sku === 'SKIRT');
+    await ingest('Sheet1', [lead('306', { full_name: 'Client 306 skirt' })]);
+    const order = await find('Client 306');
+    await api('PATCH', `/orders/${order.id}`, { items: [{ productId: skirt.id, size: null, color: 'بيج', quantity: 1 }] });
+    const piece = async () => (await api('GET', `/orders/${order.id}`)).json().items[0];
+    expect(await piece()).toMatchObject({ size: 'Standard', color: 'بيج' });
+    expect((await piece()).variantId).not.toBeNull();
+    // An order saved before this rule: fixed once at start-up.
+    await database.db.execute(sql`update order_items set size = '', variant_id = null where order_id = ${order.id}`);
+    await fillSingleOptions(database.db);
+    expect(await piece()).toMatchObject({ size: 'Standard', color: 'بيج' });
+    expect((await piece()).variantId).not.toBeNull();
   });
 
   it('pushes new orders to open browsers (live notifications)', async () => {

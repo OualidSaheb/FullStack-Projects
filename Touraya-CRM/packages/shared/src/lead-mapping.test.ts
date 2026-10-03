@@ -82,4 +82,21 @@ describe('loose matching', () => {
     expect(formIdentity({ formName: 'Skirt 2PCS 3600' }, where).key).toBe(formIdentity({ formName: 'skirt 2pcs 3600' }, where).key);
     expect(formIdentity({}, where)).toEqual({ key: 'sheet:SS1:Sheet1', name: 'Skirt leads / Sheet1' });
   });
+
+  it('reads one color / size question per piece, in order', () => {
+    const { values } = parseLeadRow({
+      id: 'l:7',
+      'مقاس_القطعة_1': 'M',
+      'لون_القطعة_1': 'الأسود_(noir)',
+      'مقاس_القطعة_2': 'L',
+      'لون_القطعة_2': 'البيج_الفاتح_(beige_clair)',
+      full_name: 'Y',
+    });
+    expect(values.colors).toBe('الأسود_(noir) | البيج_الفاتح_(beige_clair)');
+    expect(values.size).toBe('M | L');
+  });
+
+  it('one color question stays as it is', () => {
+    expect(parseLeadRow({ id: 'l:8', 'اختاري_الالوان': 'أسود_رمادي' }).values.colors).toBe('أسود_رمادي');
+  });
 });

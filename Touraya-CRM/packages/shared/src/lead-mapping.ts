@@ -171,10 +171,37 @@ export function parseLeadRow(row: Record<string, unknown>, fieldMap: FieldMap = 
     const text = v === null || v === undefined ? '' : String(v).trim();
     if (text) values[field] = text;
   }
+  joinPerPieceQuestions(row, values, matchedHeaders);
   const inferred = inferFromAnswers(row, values, matchedHeaders);
   if (values.leadId) values.leadId = cleanLeadId(values.leadId);
   if (values.formId) values.formId = cleanLeadId(values.formId.replace(/^f:/i, ''));
   return { values, matchedHeaders, inferred };
+}
+
+/** Words that make a question a color / size question ("لون القطعة 2", "مقاس القطعة الأولى", "Couleur 1"). */
+const PIECE_WORDS: Partial<Record<LeadField, string[]>> = {
+  colors: ['لون', 'الوان', 'ألوان', 'color', 'colour', 'couleur'],
+  size: ['مقاس', 'قياس', 'size', 'taille', 'pointure'],
+};
+
+/**
+ * One question per piece: Facebook's Google Sheet keeps a single answer of a
+ * "select all that apply" question, so forms ask "لون القطعة 1", "لون القطعة 2"…
+ * All color (size) questions are read together, in column order = piece order.
+ */
+function joinPerPieceQuestions(row: Record<string, unknown>, values: LeadValues, matched: Partial<Record<LeadField, string>>) {
+  const usedElsewhere = new Set(Object.entries(matched).filter(([f]) => !(f in PIECE_WORDS)).map(([, h]) => h));
+  for (const [field, keys] of Object.entries(PIECE_WORDS) as [LeadField, string[]][]) {
+    const normalizedKeys = keys.map(normalizeText);
+    const headers = Object.keys(row).filter(
+      (h) => h === matched[field] || (!usedElsewhere.has(h) && !META_COLUMNS.has(normalizeText(h)) && normalizedKeys.some((k) => normalizeText(h).includes(k))),
+    );
+    if (headers.length < 2) continue;
+    const answers = headers.map((h) => (row[h] === null || row[h] === undefined ? '' : String(row[h]).trim())).filter(Boolean);
+    if (answers.length) values[field] = answers.join(' | ');
+    matched[field] ??= headers[0];
+    headers.forEach((h) => usedElsewhere.add(h));
+  }
 }
 
 /**

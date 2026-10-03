@@ -81,12 +81,14 @@ export function findOptions(text: string | null | undefined, options: string[]):
 
 /**
  * Builds `units` item drafts. Several colors/sizes are assigned in order (one
- * per piece); a single one applies to every piece. Missing values stay null
+ * per piece); a single one applies to every piece; a product with only one
+ * size/color gets it without asking. Missing values stay null
  * and are completed by the agent during the call.
  */
 export function draftItems(units: number, request: { size?: string | null; colors?: string | null }, product: { sizes: string[]; colors: string[] }): ItemDraft[] {
   const colors = findOptions(request.colors, product.colors);
   const sizes = findOptions(request.size, product.sizes);
-  const pick = (found: string[], i: number) => (found.length === 1 ? found[0]! : found[i] ?? null);
-  return Array.from({ length: Math.max(1, units) }, (_, i) => ({ size: pick(sizes, i), color: pick(colors, i) }));
+  // A product with one size (or one color) has nothing to choose: it is filled in.
+  const pick = (found: string[], options: string[], i: number) => (found.length === 1 ? found[0]! : found[i] ?? (options.length === 1 ? options[0]! : null));
+  return Array.from({ length: Math.max(1, units) }, (_, i) => ({ size: pick(sizes, product.sizes, i), color: pick(colors, product.colors, i) }));
 }

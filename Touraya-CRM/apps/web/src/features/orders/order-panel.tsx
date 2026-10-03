@@ -242,7 +242,10 @@ export function OrderPanel({ order, onOpenOrder }: { order: OrderDetail; onOpenO
           <PriceSummary order={order} onPrice={editable && !shipped ? (price) => update.mutate({ price }) : undefined} />
           {(order.size || order.colors) && (
             <p className="text-xs text-muted">
-              طلب الزبون: {order.size && <b className="text-fg">المقاس {order.size}</b>} {order.colors && <>· الألوان <b className="text-fg">{order.colors}</b></>}
+              طلب الزبون:{' '}
+              {[order.size && <>المقاس <b className="text-fg">{order.size}</b></>, order.colors && <>الألوان <b className="text-fg">{order.colors}</b></>]
+                .filter(Boolean)
+                .map((part, i) => <span key={i}>{i > 0 && ' · '}{part}</span>)}
             </p>
           )}
           <ItemsEditor order={order} />

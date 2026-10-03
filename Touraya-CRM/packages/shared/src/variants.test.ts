@@ -60,4 +60,12 @@ describe('customer answers', () => {
       { size: '54', color: 'البني' },
     ]);
   });
+
+  it('one question per piece (Facebook answers) → one color per piece; a single size is filled in', () => {
+    const product = { sizes: ['Standard'], colors: ['الأسود (Noir)', 'البيج الفاتح (Beige clair)', 'الأخضر الزيتي (Vert olive)'] };
+    expect(draftItems(2, { colors: 'الأسود_(noir) | البيج_الفاتح_(beige_clair)' }, product)).toEqual([
+      { size: 'Standard', color: 'الأسود (Noir)' },
+      { size: 'Standard', color: 'البيج الفاتح (Beige clair)' },
+    ]);
+  });
 });

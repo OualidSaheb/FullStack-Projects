@@ -1,4 +1,4 @@
-import { count, eq } from 'drizzle-orm';
+import { count, eq, sql } from 'drizzle-orm';
 import { defaultCarrierConfig } from '@touraya/shared';
 import type { Db } from './db/client';
 import { carriers, offers, products, sources, users, variants } from './db/schema';
@@ -82,9 +82,32 @@ export async function ensureBootstrap(db: Db, log: (msg: string) => void = conso
     await db.insert(sources).values({ name: 'Google Drive — Touraya Leads', type: 'google_drive', folderName: DRIVE_FOLDER, importFrom: DEFAULT_IMPORT_FROM, token: randomToken() });
   }
 
+  await fillSingleOptions(db);
+
   // Orders imported before forms existed get their form (statistics per form cover the history).
   const linked = await backfillForms(db);
   if (linked) log(`Linked ${linked} existing orders to their Facebook forms`);
+}
+
+/**
+ * Pieces of products that have a single size (or color) but were saved
+ * without it get it, and their stock variant — only for goods still in the
+ * warehouse. Idempotent: nothing to do once filled.
+ */
+export async function fillSingleOptions(db: Db) {
+  await db.execute(sql`
+    update order_items oi set size = p.sizes->>0
+    from products p, orders o
+    where p.id = oi.product_id and o.id = oi.order_id and o.stock_out = false and oi.size = '' and jsonb_array_length(p.sizes) = 1`);
+  await db.execute(sql`
+    update order_items oi set color = p.colors->>0
+    from products p, orders o
+    where p.id = oi.product_id and o.id = oi.order_id and o.stock_out = false and oi.color = '' and jsonb_array_length(p.colors) = 1`);
+  await db.execute(sql`
+    update order_items oi set variant_id = v.id
+    from variants v, orders o
+    where oi.variant_id is null and o.id = oi.order_id and o.stock_out = false
+      and v.product_id = oi.product_id and v.size = oi.size and v.color = oi.color and v.active`);
 }
 
 /** Fake options, stock and leads to try the UI locally (npm run db:seed -- --demo). */

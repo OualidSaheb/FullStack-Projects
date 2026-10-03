@@ -8,10 +8,21 @@ import { findVariantIds } from '../catalog/service';
 export async function replaceItems(db: DbOrTx, orderId: string, items: OrderItemInput[]) {
   await db.delete(orderItems).where(eq(orderItems.orderId, orderId));
   if (!items.length) return;
-  const variantIds = await findVariantIds(db, items);
+  const filled = await withSingleOptions(db, items);
+  const variantIds = await findVariantIds(db, filled);
   await db.insert(orderItems).values(
-    items.map((i, k) => ({ orderId, productId: i.productId, variantId: variantIds[k] ?? null, size: i.size ?? '', color: i.color ?? '', quantity: i.quantity })),
+    filled.map((i, k) => ({ orderId, productId: i.productId, variantId: variantIds[k] ?? null, size: i.size ?? '', color: i.color ?? '', quantity: i.quantity })),
   );
+}
+
+/** A product with a single size or color: pieces always carry it (nothing for the agent to pick). */
+async function withSingleOptions(db: DbOrTx, items: OrderItemInput[]): Promise<OrderItemInput[]> {
+  const ids = [...new Set(items.map((i) => i.productId))];
+  const prods = await db.select({ id: products.id, sizes: products.sizes, colors: products.colors }).from(products).where(inArray(products.id, ids));
+  return items.map((i) => {
+    const p = prods.find((x) => x.id === i.productId);
+    return { ...i, size: i.size || (p?.sizes.length === 1 ? p.sizes[0]! : i.size ?? null), color: i.color || (p?.colors.length === 1 ? p.colors[0]! : i.color ?? null) };
+  });
 }
 
 /** Pieces for an offer, pre-filled from the customer's answers ("أسود_رمادي", "L"). `units` overrides the offer's piece count. */
