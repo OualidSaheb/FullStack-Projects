@@ -214,7 +214,10 @@ function driveSandbox(folder: Record<string, FakeFile>, opts: { endpointOverride
             getSheetId: () => k,
             getLastRow: () => rows.length,
             getLastColumn: () => rows[0]?.length ?? 0,
-            getRange: (r: number, c: number, nr: number, nc: number) => ({ getValues: () => rows.slice(r - 1, r - 1 + nr).map((x) => x.slice(c - 1, c - 1 + nc)) }),
+            getRange: (r: number, c: number, nr = 1, nc = 1) => {
+              const values = () => rows.slice(r - 1, r - 1 + nr).map((x) => x.slice(c - 1, c - 1 + nc));
+              return { getValues: values, getValue: () => values()[0]?.[0] ?? '' };
+            },
           })),
       }),
     },
@@ -312,5 +315,21 @@ describe('Drive folder script: one script for every form (end to end)', () => {
     Object.assign(up.props, down.props);
     expect(up.run('syncTouraya')).toMatchObject({ ok: true, created: 1 });
     expect((await api<{ items: unknown[] }>('/orders?q=Drive%20d6')).items).toHaveLength(1);
+  });
+
+  it('test rows deleted from the sheet, then a new lead on the same row: it is still delivered', async () => {
+    const before = folder.fileB!.tabs.Sheet1!.length;
+    folder.fileB!.tabs.Sheet1!.splice(1); // all leads removed, titles kept
+    folder.fileB!.updated = 3;
+    gas.run('syncTouraya');
+    folder.fileB!.tabs.Sheet1!.push(lead('d7', formB, '771000007'));
+    folder.fileB!.updated = 4;
+    expect(before).toBeGreaterThan(1);
+    expect(gas.run('syncTouraya')).toMatchObject({ created: 1 });
+    // Replaced without an empty pass in between (row 2 now holds another lead).
+    folder.fileB!.tabs.Sheet1![1] = lead('d8', formB, '771000008');
+    folder.fileB!.updated = 5;
+    expect(gas.run('syncTouraya')).toMatchObject({ created: 1 });
+    expect((await api<{ items: unknown[] }>('/orders?q=Drive%20d8')).items).toHaveLength(1);
   });
 });

@@ -545,6 +545,16 @@ describe('pieces, price tiers, returns and live events', () => {
     expect((await piece()).variantId).not.toBeNull();
   });
 
+  it('an order deleted for good is not imported again when the sheet re-sends its lead', async () => {
+    await ingest('Sheet1', [lead('307', { full_name: 'Client 307 test' })]);
+    const order = await find('Client 307');
+    await api('POST', '/orders/bulk', { action: 'delete', ids: [order.id] });
+    expect((await api('POST', '/orders/bulk', { action: 'purge', ids: [order.id] })).json()).toMatchObject({ affected: 1 });
+    const again = (await ingest('Sheet1', [lead('307', { full_name: 'Client 307 test' })])).json();
+    expect(again.results[0]).toMatchObject({ result: 'skipped', reason: 'deleted' });
+    expect(await find('Client 307')).toBeUndefined();
+  });
+
   it('pushes new orders to open browsers (live notifications)', async () => {
     await app.listen({ port: 0, host: '127.0.0.1' });
     const { port } = app.server.address() as { port: number };

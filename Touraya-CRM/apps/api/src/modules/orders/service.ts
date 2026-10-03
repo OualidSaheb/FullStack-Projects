@@ -15,7 +15,7 @@ import {
 } from '@touraya/shared';
 import { formatReference, parseReference, type AppContext } from '../../context';
 import type { Db, DbOrTx } from '../../db/client';
-import { carriers, customers, offers, orderComments, orderEvents, orders, users, variants } from '../../db/schema';
+import { carriers, customers, offers, orderComments, orderEvents, orders, purgedLeads, users, variants } from '../../db/schema';
 import { assertCan, type SessionUser } from '../../lib/auth';
 import type { DomainEvents } from '../../lib/events';
 import { badRequest, forbidden, notFound } from '../../lib/errors';
@@ -363,7 +363,9 @@ export async function bulkAction(ctx: AppContext, action: BulkAction, user: Sess
         const removed = await tx
           .delete(orders)
           .where(and(inArray(orders.id, ids), isNotNull(orders.deletedAt), eq(orders.stockOut, false)))
-          .returning({ id: orders.id });
+          .returning({ id: orders.id, leadId: orders.leadId });
+        const leads = removed.flatMap((r) => (r.leadId ? [{ leadId: r.leadId }] : []));
+        if (leads.length) await tx.insert(purgedLeads).values(leads).onConflictDoNothing();
         return { affected: removed.length };
       }
     }

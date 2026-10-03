@@ -12,7 +12,8 @@ export interface DriveScriptParams {
  * own project at script.google.com), it reads every spreadsheet put in one
  * Drive folder, every tab, and sends new rows to the CRM.
  * - a file is opened only when Drive says it changed since the last pass;
- * - per tab it remembers the last row delivered, so only new rows are sent;
+ * - per tab it remembers the last row delivered (and its lead id), so only
+ *   new rows are sent; rows deleted or replaced make it read the tab again;
  *   a row the CRM could not take is retried on the next run;
  * - once a day it re-sends the last 7 days of every tab (the CRM ignores
  *   leads it already has: the Facebook Lead ID is unique);
@@ -149,12 +150,19 @@ function readFile_(file, full, everything, summary) {
     var lastCol = sheet.getLastColumn();
     tabs.push({ name: sheet.getName(), rows: Math.max(lastRow - 1, 0) });
     var doneKey = P_DONE + file.getId() + '_' + sheet.getSheetId();
-    var done = Number(props.getProperty(doneKey) || 1); // last row delivered (1 = titles)
-    if (lastRow < done) done = 1; // rows were deleted: read again
-    var from = full ? 1 : done;
-    if (lastRow <= from || lastCol < 1) return;
-
+    // Last row delivered (1 = titles) and the lead id that was on it.
+    var stored = String(props.getProperty(doneKey) || '1').split('|');
+    var done = Number(stored[0]) || 1;
+    var doneId = stored[1] || '';
+    if (lastRow < 1 || lastCol < 1) { props.setProperty(doneKey, '1'); return; }
     var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
+    var idCol = headers.indexOf('id');
+    // Rows deleted or replaced (that lead is no longer on its row): read the whole tab again —
+    // the CRM ignores the leads it already has.
+    if (lastRow < done || (done > 1 && idCol >= 0 && doneId && String(sheet.getRange(done, idCol + 1).getValue()) !== doneId)) done = 1;
+    var from = full ? 1 : done;
+    if (lastRow <= from) { props.setProperty(doneKey, done > 1 && doneId ? done + '|' + doneId : String(done)); return; }
+
     var data = sheet.getRange(from + 1, 1, lastRow - from, lastCol).getValues();
     var pending = [];
     data.forEach(function (cells, i) {
@@ -196,7 +204,8 @@ function readFile_(file, full, everything, summary) {
     }
     if (tabOk) delivered = Math.max(delivered, lastRow);
     else complete = false;
-    props.setProperty(doneKey, String(delivered));
+    var lastId = delivered > 1 && idCol >= 0 ? String(sheet.getRange(delivered, idCol + 1).getValue()) : '';
+    props.setProperty(doneKey, lastId ? delivered + '|' + lastId : String(delivered));
   });
   props.setProperty(P_INV + file.getId(), JSON.stringify({ spreadsheetId: file.getId(), name: file.getName(), tabs: tabs }));
   return complete;

@@ -199,6 +199,15 @@ export const forms = pgTable('forms', {
   updatedAt: updatedAt(),
 });
 
+/**
+ * Leads of orders deleted for good: the sheet still has their rows, so they are
+ * never imported again (re-sends, daily re-check of the sheets).
+ */
+export const purgedLeads = pgTable('purged_leads', {
+  leadId: text('lead_id').primaryKey(),
+  purgedAt: timestamp('purged_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── Orders ───────────────────────────────────────────────────────────────
 
 export const orders = pgTable(

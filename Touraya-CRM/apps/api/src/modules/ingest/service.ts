@@ -13,7 +13,7 @@ import {
 } from '@touraya/shared';
 import { startOfDay } from '../../context';
 import type { DbOrTx } from '../../db/client';
-import { forms, offers, orderItems, orders, sources, users, type SyncStats } from '../../db/schema';
+import { forms, offers, orderItems, orders, purgedLeads, sources, users, type SyncStats } from '../../db/schema';
 import { sha1 } from '../../lib/crypto';
 import { findRecentOpenOrder, upsertCustomer } from '../customers/service';
 import { logEvents } from '../orders/events';
@@ -98,9 +98,14 @@ export async function ingestRows(db: DbOrTx, source: Source, payload: IngestPayl
   }
 
   const leadIds = parsed.map((p) => p.values.leadId).filter((id): id is string => Boolean(id));
-  const existing = new Set(
-    leadIds.length ? (await db.select({ leadId: orders.leadId }).from(orders).where(inArray(orders.leadId, leadIds))).map((r) => r.leadId) : [],
-  );
+  const [found, purged] = leadIds.length
+    ? await Promise.all([
+        db.select({ leadId: orders.leadId }).from(orders).where(inArray(orders.leadId, leadIds)),
+        db.select({ leadId: purgedLeads.leadId }).from(purgedLeads).where(inArray(purgedLeads.leadId, leadIds)),
+      ])
+    : [[], []];
+  const existing = new Set(found.map((r) => r.leadId));
+  const deletedForGood = new Set(purged.map((r) => r.leadId));
 
   const results: RowResult[] = [];
   const touched = new Map<number, Date>();
@@ -108,6 +113,10 @@ export async function ingestRows(db: DbOrTx, source: Source, payload: IngestPayl
     try {
       if (!values.leadId) {
         results.push({ row: rowNumber, result: 'skipped', reason: 'empty_row' });
+        continue;
+      }
+      if (deletedForGood.has(values.leadId)) {
+        results.push({ row: rowNumber, result: 'skipped', leadId: values.leadId, reason: 'deleted' });
         continue;
       }
       if (existing.has(values.leadId)) {
