@@ -43,6 +43,13 @@
       "when": 1791014181223,
       "tag": "0005_purged_leads",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791062778562,
+      "tag": "0006_source_config",
+      "breakpoints": true
     }
   ]
 }

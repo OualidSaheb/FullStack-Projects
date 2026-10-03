@@ -132,10 +132,25 @@ export interface DriveFile {
   tabs: { name: string; rows: number }[];
 }
 
+export interface MetaConfig {
+  appId: string;
+  /** Sealed with the app secret box. */
+  appSecret: string;
+  pageId: string;
+  pageName: string;
+  /** Page access token (sealed); from a system user token it never expires. */
+  pageToken: string;
+  /** Echoed by Meta when it checks the webhook address. */
+  verifyToken: string;
+  connectedAt: string | null;
+  lastPollAt: string | null;
+  lastError: string | null;
+}
+
 export const sources = pgTable('sources', {
   id: serial('id').primaryKey(),
   name: text('name').notNull(),
-  type: text('type').$type<'google_sheet' | 'google_drive' | 'webhook'>().notNull().default('google_sheet'),
+  type: text('type').$type<'google_sheet' | 'google_drive' | 'webhook' | 'facebook'>().notNull().default('google_sheet'),
   spreadsheetId: text('spreadsheet_id').notNull().default(''),
   formType: text('form_type').$type<'new' | 'legacy'>().notNull().default('new'),
   offerId: integer('offer_id').references(() => offers.id, { onDelete: 'set null' }),
@@ -153,6 +168,8 @@ export const sources = pgTable('sources', {
   folderName: text('folder_name').notNull().default(''),
   /** google_drive: spreadsheets the script saw on its last full pass. */
   files: jsonb('files').$type<DriveFile[]>().notNull().default([]),
+  /** facebook: app, page and sealed tokens of the direct Lead Ads connection. */
+  config: jsonb('config').$type<MetaConfig | Record<string, never>>().notNull().default({}),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

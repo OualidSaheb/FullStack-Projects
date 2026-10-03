@@ -14,7 +14,8 @@ const idParams = z.object({ id: z.coerce.number().int() });
 type SourceRow = typeof sources.$inferSelect;
 
 function toDTO(s: SourceRow, orderCount = 0): SourceDTO {
-  const { token: _token, createdAt: _c, updatedAt: _u, deletedAt: _d, lastSyncAt, ...rest } = s;
+  // Never sent to the browser: the script key and the Facebook tokens.
+  const { token: _token, config: _config, createdAt: _c, updatedAt: _u, deletedAt: _d, lastSyncAt, ...rest } = s;
   return { ...rest, lastSyncAt: lastSyncAt?.toISOString() ?? null, orderCount };
 }
 

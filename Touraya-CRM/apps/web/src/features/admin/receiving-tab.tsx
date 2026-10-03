@@ -8,6 +8,7 @@ import { fmtDateTime, timeAgo } from '@/lib/format';
 import { qk, useAdminMutation, useSources, type SourceWithStats } from '@/lib/queries';
 import { isSourceStale } from '@/components/sync-alert';
 import { Alert, Badge, Button, Card, CardHeader, Modal, PageLoader } from '@/components/ui';
+import { FacebookCard } from './facebook-card';
 import { FormsPanel } from './forms-panel';
 import { SourcesTab } from './sources-tab';
 
@@ -100,9 +101,10 @@ export function ReceivingTab() {
   const [others, setOthers] = useState(false);
   if (isLoading) return <PageLoader />;
   const drive = sources?.find((s) => s.type === 'google_drive');
-  const legacy = sources?.filter((s) => s.type !== 'google_drive') ?? [];
+  const legacy = sources?.filter((s) => s.type !== 'google_drive' && s.type !== 'facebook') ?? [];
   return (
     <div className="space-y-5">
+      <FacebookCard />
       {drive && <DriveCard source={drive} />}
       <section className="space-y-2">
         <h2 className="text-base font-semibold">الفورمات</h2>

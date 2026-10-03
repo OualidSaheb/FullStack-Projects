@@ -69,7 +69,7 @@ export interface StockMovementDTO {
 export interface SourceDTO {
   id: number;
   name: string;
-  type: 'google_sheet' | 'google_drive' | 'webhook';
+  type: 'google_sheet' | 'google_drive' | 'webhook' | 'facebook';
   spreadsheetId: string;
   folderName: string;
   /** Drive folder: spreadsheets (and tabs) seen by the script. */

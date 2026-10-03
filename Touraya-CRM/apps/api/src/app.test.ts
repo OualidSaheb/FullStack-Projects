@@ -572,3 +572,86 @@ describe('pieces, price tiers, returns and live events', () => {
     controller.abort();
   });
 });
+
+describe('Facebook Lead Ads connected directly', () => {
+  // A fake Graph API: pages, forms, leads, and Meta checking the webhook address like the real one does.
+  let graphServer: import('node:http').Server;
+  const lead = (id: string, name: string, colors: string[]) => ({
+    id,
+    created_time: new Date().toISOString().replace('Z', '+0000').replace(/\.\d+/, ''),
+    form_id: 'F1',
+    ad_name: 'video A',
+    campaign_name: 'skirt oct',
+    platform: 'fb',
+    field_data: [
+      { name: 'full_name', values: [name] },
+      { name: 'phone_number', values: ['+213661445566'] },
+      { name: 'رقمك_الخاص_للتواصل_معاك', values: ['0661445566'] },
+      { name: 'conditional_question_1', values: ['وهران'] },
+      { name: 'conditional_question_2', values: ['بئر الجير'] },
+      { name: 'المقاس', values: ['42'] },
+      { name: 'اختاري_الالوان', values: colors },
+    ],
+  });
+  const leads: Record<string, ReturnType<typeof lead>> = { L1: lead('L1', 'FB direct 1', ['أسود', 'رمادي']), L2: lead('L2', 'FB direct 2', ['بني']) };
+  const creds = { appId: '123456', appSecret: 'app-secret-abcdef', token: 'system-user-token-0123456789' };
+  const sign = (body: string) => `sha256=${require('node:crypto').createHmac('sha256', creds.appSecret).update(body).digest('hex')}`;
+
+  beforeAll(async () => {
+    const http = await import('node:http');
+    graphServer = http.createServer(async (req, res) => {
+      const url = new URL(req.url!, 'http://graph');
+      const send = (code: number, body: unknown) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+      const p = url.pathname;
+      if (p === '/me/accounts') return send(200, { data: [{ id: 'PAGE1', name: 'Touraya', access_token: 'page-token' }] });
+      if (p === `/${creds.appId}/subscriptions` && req.method === 'POST') {
+        const check = await app.inject({ method: 'GET', url: `/api/meta/webhook?hub.mode=subscribe&hub.verify_token=${url.searchParams.get('verify_token')}&hub.challenge=42` });
+        return check.body === '42' ? send(200, { success: true }) : send(400, { error: { message: 'verify failed', code: 2200 } });
+      }
+      if (p === '/PAGE1/subscribed_apps') return send(200, { success: true });
+      if (p === '/PAGE1/leadgen_forms') return send(200, { data: [{ id: 'F1', name: 'pants 2pcs 3500 - fb direct' }] });
+      if (p === '/F1/leads') return send(200, { data: [leads.L1] });
+      if (p === '/F1') return send(200, { id: 'F1', name: 'pants 2pcs 3500 - fb direct' });
+      const one = leads[p.slice(1)];
+      if (one) return send(200, one);
+      return send(404, { error: { message: 'unknown path ' + p, code: 100 } });
+    });
+    await new Promise<void>((r) => graphServer.listen(0, '127.0.0.1', r));
+    process.env.META_GRAPH_URL = `http://127.0.0.1:${(graphServer.address() as { port: number }).port}`;
+  });
+  afterAll(() => graphServer.close());
+
+  it('lists the pages of the token, connects one and brings its recent leads (all chosen colors)', async () => {
+    expect((await api('POST', '/meta/pages', creds)).json()).toEqual([{ id: 'PAGE1', name: 'Touraya' }]);
+    const res = await api('POST', '/meta/connect', { ...creds, pageId: 'PAGE1' });
+    expect(res.json()).toMatchObject({ pageName: 'Touraya', created: 1 });
+    expect((await api('GET', '/meta')).json()).toMatchObject({ connected: true, pageName: 'Touraya', lastError: null });
+    const order = await find('FB direct 1');
+    const detail = (await api('GET', `/orders/${order.id}`)).json();
+    expect(detail).toMatchObject({ offerName: 'pants 2pcs 3500', wilayaCode: 31, communeName: 'Bir El Djir' });
+    expect(detail.items.map((i: { color: string }) => i.color)).toEqual(['أسود', 'رمادي']); // multi-select kept whole
+    // Secrets never leave the server.
+    expect(JSON.stringify((await api('GET', '/sources')).json())).not.toContain('page-token');
+  });
+
+  it('a webhook with a valid signature imports the new lead; a forged one is refused', async () => {
+    const body = JSON.stringify({ object: 'page', entry: [{ id: 'PAGE1', changes: [{ field: 'leadgen', value: { leadgen_id: 'L2', page_id: 'PAGE1', form_id: 'F1' } }] }] });
+    const forged = await app.inject({ method: 'POST', url: '/api/meta/webhook', payload: body, headers: { 'content-type': 'application/json', 'x-hub-signature-256': 'sha256=00' } });
+    expect(forged.statusCode).toBe(403);
+    const ok = await app.inject({ method: 'POST', url: '/api/meta/webhook', payload: body, headers: { 'content-type': 'application/json', 'x-hub-signature-256': sign(body) } });
+    expect(ok.statusCode).toBe(200);
+    for (let i = 0; i < 50 && !(await find('FB direct 2')); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(await find('FB direct 2')).toMatchObject({ customerName: 'FB direct 2' });
+  });
+
+  it('the same lead coming again from the Google Sheet is not duplicated', async () => {
+    const res = (await ingest('Sheet1', [{ id: 'l:L1', created_time: new Date().toISOString(), full_name: 'FB direct 1', phone_number: 'p:+213661445566' }])).json();
+    expect(res.results[0].result).toBe('duplicate');
+  });
+
+  it('serves the public privacy page Meta asks for', async () => {
+    const res = await app.inject({ method: 'GET', url: '/privacy' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('سياسة الخصوصية');
+  });
+});

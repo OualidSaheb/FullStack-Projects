@@ -22,6 +22,8 @@ import { settingsRoutes } from './modules/settings/routes';
 import { carrierWebhookRoutes, shippingRoutes } from './modules/shipping/routes';
 import { sourceRoutes } from './modules/sources/routes';
 import { formRoutes } from './modules/forms/routes';
+import { metaRoutes } from './modules/meta/routes';
+import { privacyPage } from './modules/meta/privacy';
 import { statsRoutes } from './modules/stats/routes';
 import { userRoutes } from './modules/users/routes';
 
@@ -63,6 +65,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
       await api.register(userRoutes);
       await api.register(sourceRoutes);
       await api.register(formRoutes);
+      await api.register(metaRoutes);
       await api.register(ingestRoutes);
       await api.register(shippingRoutes);
       await api.register(statsRoutes);
@@ -72,6 +75,9 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     },
     { prefix: '/api' },
   );
+
+  // Public privacy policy (required by Meta for the Facebook Lead Ads connection).
+  app.get('/privacy', async (_req, reply) => reply.type('text/html; charset=utf-8').send(privacyPage('Touraya')));
 
   // Production: serve the built web app with SPA fallback.
   const webDist = path.resolve(config.WEB_DIST ?? path.join(process.cwd(), '../web/dist'));

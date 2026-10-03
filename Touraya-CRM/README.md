@@ -10,11 +10,13 @@
 - **[مشاكل COD في الجزائر وحلولها في المنصة](docs/COD-PLAYBOOK.md)**
 - **[البنية التقنية، نقاط التوسع، خطة الوكيل الذكي، والاستضافة المجانية](docs/ARCHITECTURE.md)**
 - **[تجربة المنصة أونلاين + خطة الاختبار خطوة بخطوة](docs/DEPLOY.md)**
+- **[ربط Facebook Lead Ads مباشرة (بدون Google Sheets)](docs/FACEBOOK.md)**
 
 ## المسار
 
 ```
-Facebook Forms → شيتات في مجلد Drive → سكريبت واحد ─┐
+Facebook Lead Ads ← ربط مباشر (Webhook + مراجعة كل 10 دقائق) ─┐
+Facebook Forms → شيتات في مجلد Drive → سكريبت واحد ──────────┤
 موقع / Make / Zapier / Shopify → Webhook ───┤
                                             ▼
      الفورم (يُكتشف تلقائياً، مربوط بعرض) ← المنتج · الكمية · السعر

@@ -13,7 +13,8 @@ const DEFAULT_SOURCE: SourceInput = { name: '', type: 'webhook', folderName: '',
 
 function SourceForm({ source, onClose }: { source: SourceWithStats | null; onClose: () => void }) {
   const { data: offers } = useOffers();
-  const [form, setForm] = useState<SourceInput>(() => (source ? { ...DEFAULT_SOURCE, ...source } : DEFAULT_SOURCE));
+  // Facebook is connected from its own card, never edited here.
+  const [form, setForm] = useState<SourceInput>(() => (source && source.type !== 'facebook' ? { ...DEFAULT_SOURCE, ...source, type: source.type } : DEFAULT_SOURCE));
   const sheet = form.type === 'google_sheet';
   const save = useAdminMutation(qk.sources, (v: SourceInput) => (source ? api.put(`/sources/${source.id}`, v) : api.post('/sources', v)));
   const remove = useAdminMutation(qk.sources, () => api.delete(`/sources/${source!.id}`), 'تم حذف المصدر');
@@ -162,7 +163,7 @@ function SyncStatus({ source }: { source: SourceWithStats }) {
 /** Per-sheet scripts (older setup) and webhooks; the Drive folder has its own card. */
 export function SourcesTab({ hideDrive }: { hideDrive?: boolean }) {
   const { data: all, isLoading } = useSources();
-  const sources = hideDrive ? all?.filter((s) => s.type !== 'google_drive') : all;
+  const sources = hideDrive ? all?.filter((s) => s.type !== 'google_drive' && s.type !== 'facebook') : all;
   const { data: offers } = useOffers();
   const [hook, setHook] = useState<SourceWithStats | null>(null);
   const [editing, setEditing] = useState<SourceWithStats | null | 'new'>(null);
