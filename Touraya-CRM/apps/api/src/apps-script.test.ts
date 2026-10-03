@@ -332,4 +332,18 @@ describe('Drive folder script: one script for every form (end to end)', () => {
     expect(gas.run('syncTouraya')).toMatchObject({ created: 1 });
     expect((await api<{ items: unknown[] }>('/orders?q=Drive%20d8')).items).toHaveLength(1);
   });
+
+  it('paused in the platform: nothing is taken, nothing is lost — delivered once switched back on', async () => {
+    const put = async (active: boolean) => {
+      const drive = (await api<{ id: number; type: string }[]>('/sources')).find((x) => x.id === driveId)!;
+      await fetch(`${base}/api/sources/${driveId}`, { method: 'PUT', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ ...drive, active }) });
+    };
+    await put(false);
+    folder.fileA!.tabs.Sheet1!.push(lead('d9', formA, '771000009'));
+    folder.fileA!.updated = 9;
+    expect(gas.run('syncTouraya')).toMatchObject({ ok: false });
+    expect((await api<{ items: unknown[] }>('/orders?q=Drive%20d9')).items).toHaveLength(0);
+    await put(true);
+    expect(gas.run('syncTouraya')).toMatchObject({ ok: true, created: 1 });
+  });
 });

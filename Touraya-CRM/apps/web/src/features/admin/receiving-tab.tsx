@@ -7,7 +7,7 @@ import { cn } from '@/lib/cn';
 import { fmtDateTime, timeAgo } from '@/lib/format';
 import { qk, useAdminMutation, useSources, type SourceWithStats } from '@/lib/queries';
 import { isSourceStale } from '@/components/sync-alert';
-import { Alert, Badge, Button, Card, CardHeader, Modal, PageLoader } from '@/components/ui';
+import { Alert, Badge, Button, Card, CardHeader, Modal, PageLoader, Switch } from '@/components/ui';
 import { FacebookCard } from './facebook-card';
 import { FormsPanel } from './forms-panel';
 import { SourcesTab } from './sources-tab';
@@ -56,14 +56,26 @@ function DriveCard({ source }: { source: SourceWithStats }) {
   const [setup, setSetup] = useState(false);
   const connected = Boolean(source.lastSyncAt);
   const stale = connected && isSourceStale(source);
+  // Pause (e.g. to test Facebook alone): the script keeps its rows and re-sends them when switched back on.
+  const pause = useAdminMutation(qk.sources, (active: boolean) => api.put(`/sources/${source.id}`, { ...source, active }), 'تم الحفظ');
   return (
     <Card>
       <CardHeader
         title={<>مجلد Google Drive «{source.folderName}»</>}
         icon={<FolderOpen className="size-4 text-primary" />}
-        action={<Button size="sm" variant={connected ? 'secondary' : 'primary'} icon={<Settings className="size-3.5" />} onClick={() => setSetup(true)}>{connected ? 'الكود والخطوات' : 'إعداد (مرة واحدة)'}</Button>}
+        action={
+          <div className="flex items-center gap-3">
+            {connected && <Switch checked={source.active} onChange={(on) => pause.mutate(on)} label={source.active ? 'يستقبل' : 'متوقف مؤقتاً'} />}
+            <Button size="sm" variant={connected ? 'secondary' : 'primary'} icon={<Settings className="size-3.5" />} onClick={() => setSetup(true)}>{connected ? 'الكود والخطوات' : 'إعداد (مرة واحدة)'}</Button>
+          </div>
+        }
       />
       <div className="space-y-3 p-4 text-sm">
+        {!source.active && (
+          <Alert tone="warn" icon={<TriangleAlert className="mt-0.5 size-4 shrink-0" />}>
+            متوقف مؤقتاً: المنصة لا تقبل طلبيات هذا المجلد. لا يضيع شيء — السكريبت يحتفظ بالأسطر ويرسلها كلها عند إعادة التشغيل (بدون تكرار).
+          </Alert>
+        )}
         {!connected ? (
           <p className="text-muted">سكريبت واحد يقرأ كل الشيتات الموجودة في هذا المجلد. بعد إعداده، كل إعلان جديد = تضع الشيت في المجلد فقط.</p>
         ) : (
