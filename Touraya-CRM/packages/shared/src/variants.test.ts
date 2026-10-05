@@ -76,4 +76,13 @@ describe('customer answers', () => {
     expect(findOptions('البني', colors)).toEqual(['البني (Marron taupe)']);
     expect(unknownOptions({ colors: 'noir | البني' }, { sizes: [], colors }).colors).toEqual([]);
   });
+
+  it('a color written short or with a small typo is still found, in the customer\'s order', () => {
+    const colors = ['البيج الفاتح (Beige clair)', 'الأسود (Noir)', 'البني (Marron taupe)', 'الأخضر الزيتي (Vert olive)', 'الازرق الكحلي (Bleu marine)'];
+    expect(findOptions('الأخضر البني', colors)).toEqual(['الأخضر الزيتي (Vert olive)', 'البني (Marron taupe)']);
+    expect(findOptions('اسوذ و بيج', colors)).toEqual(['الأسود (Noir)', 'البيج الفاتح (Beige clair)']);
+    expect(findOptions('ازرق', colors)).toEqual(['الازرق الكحلي (Bleu marine)']);
+    expect(draftItems(2, { colors: 'الأخضر البني' }, { sizes: [], colors }).map((d) => d.color)).toEqual(['الأخضر الزيتي (Vert olive)', 'البني (Marron taupe)']);
+    expect(unknownOptions({ colors: 'الأخضر البني' }, { sizes: [], colors }).colors).toEqual([]);
+  });
 });

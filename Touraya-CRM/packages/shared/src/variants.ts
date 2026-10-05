@@ -1,4 +1,4 @@
-import { normalizeText } from './text';
+import { levenshtein, normalizeText } from './text';
 
 /** Normalized words without the Arabic article, so "البني" = "بني" and "الأسود" = "اسود". */
 const words = (text: string | null | undefined) =>
@@ -30,6 +30,7 @@ export function splitAnswer(text: string | null | undefined): string[] {
 
 /** Little words that are not choices ("أسود و رمادي", "noir et gris"). */
 const FILLERS = new Set(['و', 'او', 'أو', 'مع', 'and', 'et', 'ou', 'or', 'with', 'avec', 'لون', 'الوان', 'مقاس', 'size', 'taille']);
+const FILLER_WORDS = new Set([...FILLERS, 'اللون', 'قطعه', 'قطع', 'واحد', 'واحده', 'couleur', 'color', 'colors'].map((f) => words(f)));
 
 /**
  * Choices in the customer's answer that the product does not have yet (to add
@@ -84,6 +85,21 @@ export function findOptions(text: string | null | undefined, options: string[]):
         taken.push([at, end]);
       }
       from = at + 1;
+    }
+  }
+  // Words the customer wrote that are not a full name: one word that belongs to a single option
+  // ("الأخضر" → "الأخضر الزيتي") or a one-letter typo of such a word ("اسوذ" → "الأسود").
+  const wordRe = /\S+/g;
+  for (let m = wordRe.exec(haystack); m; m = wordRe.exec(haystack)) {
+    const token = m[0];
+    const at = m.index;
+    if (token.length < 3 || FILLER_WORDS.has(token) || taken.some(([s, e]) => at >= s && at < e)) continue;
+    const owners = (match: (w: string) => boolean) => [...new Set(options.filter((o) => optionNames(o).some((n) => words(n).split(' ').some(match))))];
+    let found = owners((w) => w === token);
+    if (!found.length && token.length >= 4) found = owners((w) => w.length >= 4 && levenshtein(w, token) <= 1);
+    if (found.length === 1) {
+      hits.push({ at, option: found[0]!, len: token.length });
+      taken.push([at, at + token.length + 1]);
     }
   }
   return hits.sort((a, b) => a.at - b.at).map((h) => h.option);
