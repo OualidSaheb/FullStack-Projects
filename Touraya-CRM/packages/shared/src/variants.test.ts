@@ -68,4 +68,12 @@ describe('customer answers', () => {
       { size: 'Standard', color: 'البيج الفاتح (Beige clair)' },
     ]);
   });
+
+  it('an option answers to its Arabic or French part: "الأسود (Noir)" = "الأسود" = "noir"', () => {
+    const colors = ['الأسود (Noir)', 'البيج الفاتح (Beige clair)', 'البني (Marron taupe)'];
+    expect(findOptions('الاسود', colors)).toEqual(['الأسود (Noir)']);
+    expect(findOptions('beige_clair | noir', colors)).toEqual(['البيج الفاتح (Beige clair)', 'الأسود (Noir)']);
+    expect(findOptions('البني', colors)).toEqual(['البني (Marron taupe)']);
+    expect(unknownOptions({ colors: 'noir | البني' }, { sizes: [], colors }).colors).toEqual([]);
+  });
 });

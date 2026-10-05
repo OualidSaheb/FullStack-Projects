@@ -53,16 +53,26 @@ export function unknownOptions(request: { size?: string | null; colors?: string 
   return { sizes: unknown(request.size, product.sizes), colors: unknown(request.colors, product.colors) };
 }
 
+/** The names an option answers to: in full, the part before "(…)", and the part inside. */
+function optionNames(option: string): string[] {
+  const inside = /\(([^)]+)\)/.exec(option)?.[1];
+  const before = option.replace(/\(.*$/, '');
+  return [...new Set([option, before, inside ?? ''].map((n) => n.trim()).filter((n) => words(n)))];
+}
+
 /** Known options found in the text, in the order the customer wrote them (repeats allowed). */
 export function findOptions(text: string | null | undefined, options: string[]): string[] {
   const haystack = ` ${words(text)} `;
   if (!haystack.trim() || !options.length) return [];
   const hits: { at: number; option: string; len: number }[] = [];
+  // Each option also answers to its parts: "الأسود (Noir)" = "الأسود" = "Noir".
   // Longer names first so "أزرق فاتح" wins over "أزرق".
-  const sorted = [...options].sort((a, b) => words(b).length - words(a).length);
+  const sorted = options
+    .flatMap((option) => optionNames(option).map((name) => ({ option, name })))
+    .sort((a, b) => words(b.name).length - words(a.name).length);
   const taken: [number, number][] = [];
-  for (const option of sorted) {
-    const needle = ` ${words(option)} `;
+  for (const { option, name } of sorted) {
+    const needle = ` ${words(name)} `;
     if (needle.trim().length === 0) continue;
     let from = 0;
     for (;;) {

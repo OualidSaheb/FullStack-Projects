@@ -104,4 +104,9 @@ describe('loose matching', () => {
     const { values } = parseLeadRow({ id: 'l:9', 'اختاري_اللون_الثاني': 'البيج', 'اختاري_اللون_الأول': 'الأسود', 'اختاري_اللون_الثالث': 'الأحمر', full_name: 'Z' });
     expect(values.colors).toBe('الأسود | البيج | الأحمر');
   });
+
+  it('field names set in the Facebook form (color_1, wilaya, commune, offer tracking parameter) are read directly', () => {
+    const { values } = parseLeadRow({ id: 'l:10', offer: 'Jupe001 2pcs 2200', color_2: 'beige', color_1: 'noir', size: 'M', wilaya: 'وهران', commune: 'بئر الجير', 'رقم_الهاتف': '0661223344' });
+    expect(values).toMatchObject({ offer: 'Jupe001 2pcs 2200', colors: 'noir | beige', size: 'M', wilaya: 'وهران', commune: 'بئر الجير', phoneCustomer: '0661223344' });
+  });
 });
