@@ -83,17 +83,25 @@ export async function applyCarrierUpdates(ctx: AppContext, carrier: LoadedCarrie
     await ctx.db.transaction(async (tx) => {
       const matches = await tx.select().from(orders).where(or(...conds));
       for (const order of matches) {
+        // Payment news (money collected / paid out): history only, the parcel's status stays.
+        if (!u.carrierStatus) {
+          if (u.payment) {
+            await logEvents(tx, { orderId: order.id, type: 'carrier_update', data: { event: u.event, payment: u.payment, tracking: u.tracking, carrier: carrier.name } });
+            applied++;
+          }
+          continue;
+        }
         // Same news again (webhook + hourly check): nothing to record.
         if (label && label === order.carrierStatus && (!u.tracking || u.tracking === order.carrierTracking)) continue;
+        const mapped = adapter?.mapStatus(u.carrierStatus) ?? null;
+        // Never move an order back (an older event arriving late, "return received" already on the shelf…).
+        const stale = mapped && ((STEP[mapped] ?? 99) < (STEP[order.status] ?? -1) || (CARRIER_FINAL_STATUSES.includes(order.status) && !CARRIER_FINAL_STATUSES.includes(mapped)));
         await tx
           .update(orders)
-          .set({ ...(label ? { carrierStatus: label } : {}), ...(u.tracking ? { carrierTracking: u.tracking } : {}), updatedAt: new Date() })
+          .set({ ...(label && !stale ? { carrierStatus: label } : {}), ...(u.tracking ? { carrierTracking: u.tracking } : {}), updatedAt: new Date() })
           .where(eq(orders.id, order.id));
         await logEvents(tx, { orderId: order.id, type: 'carrier_update', data: { event: u.event, carrierStatus: u.carrierStatus, reason: u.reason, tracking: u.tracking, carrier: carrier.name } });
-        const mapped = u.carrierStatus ? adapter?.mapStatus(u.carrierStatus) : null;
-        const backwards = mapped && (STEP[mapped] ?? 99) < (STEP[order.status] ?? -1);
-        // Never move an order back (an older event arriving late, "return received" already on the shelf…).
-        if (mapped && !backwards && !(CARRIER_FINAL_STATUSES.includes(order.status) && !CARRIER_FINAL_STATUSES.includes(mapped)))
+        if (mapped && !stale)
           events.push(await transitionStatus(await transitionContext(ctx, tx, null), order, mapped, { meta: { via: carrier.provider, ...(u.reason ? { reason: u.reason } : {}) } }));
         applied++;
       }

@@ -311,6 +311,18 @@ describe('carriers, shipping and stock', () => {
     // An older event arriving late never moves it back.
     await hook('Centre');
     expect((await detail()).status).toBe('delivered');
+
+    // Payment news: in the history, the parcel's status and label stay.
+    const paid = await app.inject({
+      method: 'POST',
+      url: '/api/webhooks/yalidine',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({ type: 'parcel_payment_updated', events: [{ event_type: 'parcel_payment_updated', data: { tracking: 'yal-API1', payment_status: 'receivable' } }] }),
+    });
+    expect(paid.json()).toMatchObject({ applied: 1 });
+    expect(await detail()).toMatchObject({ status: 'delivered', carrierStatus: 'Livré' });
+    const timeline = (await api('GET', `/orders/${order.id}/timeline`)).json();
+    expect(JSON.stringify(timeline)).toContain('receivable');
   });
 
   it('agents send confirmed orders themselves when the setting allows it', async () => {

@@ -12,6 +12,15 @@ const FIELD_LABELS: Record<string, string> = {
   offerId: 'العرض', price: 'السعر', items: 'القطع', deliveryType: 'نوع التوصيل', stopdeskId: 'مكتب Stop desk', carrierId: 'شركة التوصيل',
 };
 
+/** Yalidine's payment states for the cash it collected. */
+const CARRIER_PAYMENT: Record<string, string> = {
+  'not-ready': 'لم يُحصَّل بعد',
+  ready: 'المبلغ حُصِّل — جاهز للدفع',
+  receivable: 'المبلغ في حسابك (قيد الدفع)',
+  payed: 'تم دفع المبلغ لك',
+  paid: 'تم دفع المبلغ لك',
+};
+
 const show = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : String(v));
 
 function EventLine({ e, userName }: { e: OrderEventDTO; userName: (id: unknown) => string }) {
@@ -69,7 +78,9 @@ function EventLine({ e, userName }: { e: OrderEventDTO; userName: (id: unknown) 
       break;
     case 'carrier_update':
       icon = <Truck className="size-3.5" />;
-      body = <>تحديث من شركة التوصيل: <b>{show(d.carrierStatus)}</b></>;
+      body = d.payment
+        ? <>الدفع عند {show(d.carrier)}: <b>{CARRIER_PAYMENT[d.payment as string] ?? show(d.payment)}</b></>
+        : <>تحديث من شركة التوصيل: <b>{show(d.carrierStatus)}</b>{d.reason ? <> — {show(d.reason)}</> : null}</>;
       break;
     case 'phone_issue':
       icon = <AlertTriangle className="size-3.5 text-warn" />;

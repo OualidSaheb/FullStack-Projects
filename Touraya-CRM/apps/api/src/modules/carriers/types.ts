@@ -18,6 +18,8 @@ export interface WebhookUpdate {
   carrierStatus?: string;
   /** Why a delivery failed or a parcel is held ("Client ne répond pas"…). */
   reason?: string;
+  /** Cash-on-delivery money: the carrier's payment state (Yalidine: not-ready, ready, receivable, payed). */
+  payment?: string;
 }
 
 export class CarrierError extends Error {

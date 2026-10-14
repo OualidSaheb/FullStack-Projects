@@ -85,15 +85,17 @@ export const yalidine: CarrierAdapter = {
   },
 
   parseWebhook(payload): WebhookUpdate[] {
-    type Data = { tracking?: string; order_id?: string; status?: string; last_status?: string; reason?: string };
+    type Data = { tracking?: string; order_id?: string; status?: string; last_status?: string; reason?: string; payment_status?: string };
     const body = payload as { type?: string; events?: { event_type?: string; data?: Data }[]; data?: Data };
     const events = body.events ?? (body.data ? [{ event_type: body.type, data: body.data }] : []);
     return events.map((e) => ({
       event: e.event_type ?? body.type ?? 'unknown',
       tracking: e.data?.tracking,
       reference: e.data?.order_id,
-      carrierStatus: e.data?.status ?? e.data?.last_status,
+      // parcel_payment_updated carries the money's state only, not a delivery status.
+      carrierStatus: (e.event_type ?? body.type) === 'parcel_payment_updated' ? undefined : (e.data?.status ?? e.data?.last_status),
       reason: e.data?.reason || undefined,
+      payment: (e.event_type ?? body.type) === 'parcel_payment_updated' ? e.data?.payment_status || undefined : undefined,
     }));
   },
 
