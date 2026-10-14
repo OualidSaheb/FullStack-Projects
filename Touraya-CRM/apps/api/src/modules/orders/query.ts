@@ -116,6 +116,8 @@ export const listSelection = {
   callAttempts: orders.callAttempts,
   nextCallAt: orders.nextCallAt,
   cancelReason: orders.cancelReason,
+  carrierTracking: orders.carrierTracking,
+  carrierStatus: orders.carrierStatus,
   commentCount: orders.commentCount,
   lastComment: orders.lastComment,
   duplicateOfId: orders.duplicateOfId,

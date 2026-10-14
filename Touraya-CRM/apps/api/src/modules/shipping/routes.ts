@@ -1,12 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { exportRequestSchema } from '@touraya/shared';
+import { CARRIER_FINAL_STATUSES, exportRequestSchema, IN_TRANSIT_STATUSES, type OrderStatus } from '@touraya/shared';
 import { parseReference, type AppContext } from '../../context';
 import { carriers, exportBatches, orders } from '../../db/schema';
 import { notFound } from '../../lib/errors';
 import { ADAPTERS } from '../carriers/registry';
-import { getCarrier } from '../carriers/service';
+import { getCarrier, loadCarrierRow } from '../carriers/service';
 import type { LoadedCarrier, WebhookUpdate } from '../carriers/types';
 import { logEvents } from '../orders/events';
 import { emitStatusEvents, transitionContext, type StatusEvent } from '../orders/service';
@@ -16,8 +16,10 @@ import { createExportBatch, listBatches, previewExport, sendViaApi } from './ser
 
 export const shippingRoutes: FastifyPluginAsync = async (app) => {
   const exporter = { preHandler: app.requirePermission('shipping.export') };
+  /** Sending confirmed orders through the carrier API: managers, and agents when the setting allows it. */
+  const sender = { preHandler: app.requirePermission('shipping.send') };
 
-  app.post('/shipping/preview', exporter, async (req) => {
+  app.post('/shipping/preview', sender, async (req) => {
     const { ids, carrierId } = exportRequestSchema.parse(req.body);
     return previewExport(app, ids, carrierId);
   });
@@ -40,10 +42,32 @@ export const shippingRoutes: FastifyPluginAsync = async (app) => {
       .send(await renderFile(format, batch.headers, batch.rows));
   });
 
-  app.post('/shipping/send', exporter, async (req) => {
+  app.post('/shipping/send', sender, async (req) => {
     const { ids, carrierId } = exportRequestSchema.parse(req.body);
     return sendViaApi(app, ids, req.user, carrierId);
   });
+
+  /** "Update now": ask the carrier for the status of every parcel on its way. */
+  app.post('/shipping/sync', sender, async () => syncCarrierStatuses(app));
+
+  // Behind the webhook: check every hour (a missed webhook, the platform asleep…). Not in tests.
+  if (app.config.NODE_ENV !== 'test') {
+    const timer = setInterval(() => void syncCarrierStatuses(app).catch((err) => app.log.warn({ err }, 'carrier status sync failed')), 60 * 60_000);
+    app.addHook('onClose', async () => clearInterval(timer));
+  }
+};
+
+/** Order of the delivery steps: a late update never moves a parcel back to an earlier step. */
+const STEP: Partial<Record<OrderStatus, number>> = {
+  ready_for_carrier: 0,
+  sent_to_carrier: 1,
+  carrier_received: 2,
+  out_for_delivery: 3,
+  at_desk: 3,
+  delivery_failed: 3,
+  delivered: 4,
+  returned: 4,
+  return_received: 5,
 };
 
 /** Applies carrier status updates to orders (matched by tracking, then by our reference). */
@@ -55,24 +79,54 @@ export async function applyCarrierUpdates(ctx: AppContext, carrier: LoadedCarrie
     const number = u.reference ? parseReference(u.reference) : null;
     const conds = [u.tracking ? eq(orders.carrierTracking, u.tracking) : undefined, number ? eq(orders.number, number) : undefined].filter(Boolean);
     if (!conds.length) continue;
+    const label = u.carrierStatus ? (u.reason ? `${u.carrierStatus} — ${u.reason}` : u.carrierStatus) : undefined;
     await ctx.db.transaction(async (tx) => {
       const matches = await tx.select().from(orders).where(or(...conds));
       for (const order of matches) {
+        // Same news again (webhook + hourly check): nothing to record.
+        if (label && label === order.carrierStatus && (!u.tracking || u.tracking === order.carrierTracking)) continue;
         await tx
           .update(orders)
-          .set({ ...(u.carrierStatus ? { carrierStatus: u.carrierStatus } : {}), ...(u.tracking ? { carrierTracking: u.tracking } : {}), updatedAt: new Date() })
+          .set({ ...(label ? { carrierStatus: label } : {}), ...(u.tracking ? { carrierTracking: u.tracking } : {}), updatedAt: new Date() })
           .where(eq(orders.id, order.id));
-        await logEvents(tx, { orderId: order.id, type: 'carrier_update', data: { event: u.event, carrierStatus: u.carrierStatus, tracking: u.tracking, carrier: carrier.name } });
+        await logEvents(tx, { orderId: order.id, type: 'carrier_update', data: { event: u.event, carrierStatus: u.carrierStatus, reason: u.reason, tracking: u.tracking, carrier: carrier.name } });
         const mapped = u.carrierStatus ? adapter?.mapStatus(u.carrierStatus) : null;
-        // Never move an order back from "return received" (the parcel is already on the shelf).
-        if (mapped && order.status !== 'return_received')
-          events.push(await transitionStatus(await transitionContext(ctx, tx, null), order, mapped, { meta: { via: carrier.provider } }));
+        const backwards = mapped && (STEP[mapped] ?? 99) < (STEP[order.status] ?? -1);
+        // Never move an order back (an older event arriving late, "return received" already on the shelf…).
+        if (mapped && !backwards && !(CARRIER_FINAL_STATUSES.includes(order.status) && !CARRIER_FINAL_STATUSES.includes(mapped)))
+          events.push(await transitionStatus(await transitionContext(ctx, tx, null), order, mapped, { meta: { via: carrier.provider, ...(u.reason ? { reason: u.reason } : {}) } }));
         applied++;
       }
     });
   }
   emitStatusEvents(ctx, events);
   return applied;
+}
+
+/**
+ * The regular check behind the webhook: asks each carrier with an API for the
+ * current status of every parcel still on its way (a missed webhook, the
+ * platform asleep…). Only real changes are recorded.
+ */
+export async function syncCarrierStatuses(ctx: AppContext) {
+  const rows = await ctx.db.select().from(carriers).where(and(eq(carriers.active, true), eq(carriers.apiEnabled, true)));
+  let checked = 0;
+  let applied = 0;
+  for (const row of rows) {
+    const carrier = loadCarrierRow(ctx.secrets, row);
+    const adapter = ADAPTERS[carrier.provider];
+    if (!adapter?.fetchStatuses) continue;
+    const open = await ctx.db
+      .select({ tracking: orders.carrierTracking })
+      .from(orders)
+      .where(and(eq(orders.carrierId, carrier.id), isNotNull(orders.carrierTracking), isNull(orders.deletedAt), inArray(orders.status, IN_TRANSIT_STATUSES)));
+    const trackings = open.map((o) => o.tracking!).filter(Boolean);
+    if (!trackings.length) continue;
+    const updates = await adapter.fetchStatuses(carrier, trackings);
+    checked += trackings.length;
+    applied += await applyCarrierUpdates(ctx, carrier, updates);
+  }
+  return { checked, applied };
 }
 
 /**

@@ -1,11 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, inArray, isNotNull, sql, type SQL } from 'drizzle-orm';
-import { BLOCKING_PHONE_ISSUES, orderFilterSchema, type OrderStatus, type StatsDTO } from '@touraya/shared';
+import { BLOCKING_PHONE_ISSUES, CONFIRMED_OR_LATER, orderFilterSchema, PARCEL_LOCKED_STATUSES, type OrderStatus, type StatsDTO } from '@touraya/shared';
 import { offers, orderItems, orders, products, sources, users } from '../../db/schema';
 import { buildOrderWhere } from '../orders/query';
 
-const CONFIRMED_OR_LATER: OrderStatus[] = ['confirmed', 'ready_for_carrier', 'sent_to_carrier', 'carrier_received', 'delivered', 'returned', 'return_received'];
-const SHIPPED: OrderStatus[] = ['ready_for_carrier', 'sent_to_carrier', 'carrier_received', 'delivered', 'returned', 'return_received'];
+const SHIPPED: OrderStatus[] = PARCEL_LOCKED_STATUSES;
 const RETURNED: OrderStatus[] = ['returned', 'return_received'];
 
 const count = sql<number>`count(*)::int`;

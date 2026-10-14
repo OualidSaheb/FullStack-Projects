@@ -300,5 +300,7 @@ export const settingsSchema = z.object({
   assignment: z.enum(['manual', 'balanced']).default('manual'),
   /** Same phone with an open order within N days → "possible duplicate". */
   duplicateWindowDays: z.number().int().min(0).max(30).default(3),
+  /** Agents may send the orders they confirmed to the delivery company (API). */
+  agentsCanShip: z.boolean().default(true),
 });
 export type Settings = z.infer<typeof settingsSchema>;

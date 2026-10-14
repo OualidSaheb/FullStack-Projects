@@ -65,6 +65,10 @@ export function SettingsTab() {
           <Field label="كشف الطلب المكرر خلال (أيام)" hint="نفس الهاتف وعنده طلبية مفتوحة — 0 لإيقافه">
             {(id) => <Input id={id} type="number" min={0} max={30} value={form.duplicateWindowDays} onChange={(e) => setForm({ ...form, duplicateWindowDays: Number(e.target.value) })} />}
           </Field>
+          <div className="sm:col-span-2">
+            <Switch checked={form.agentsCanShip} onChange={(agentsCanShip) => setForm({ ...form, agentsCanShip })} label="موظفو التأكيد يرسلون الطلبيات المؤكدة لشركة التوصيل (API) بأنفسهم" />
+            <p className="mt-1 text-xs text-muted">ملف Excel وسجل الملفات يبقيان للمسؤولين فقط.</p>
+          </div>
         </div>
       </Card>
 

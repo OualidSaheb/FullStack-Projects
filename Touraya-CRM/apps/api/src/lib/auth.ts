@@ -3,7 +3,8 @@ import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import { eq } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from 'fastify';
-import { can, type Permission, type Role } from '@touraya/shared';
+import { can, settingsPermissions, type Permission, type Role } from '@touraya/shared';
+import { getSettings } from '../modules/settings/service';
 import { users } from '../db/schema';
 import { forbidden, HttpError } from './errors';
 
@@ -76,7 +77,9 @@ export const authPlugin = fp(async (app) => {
   app.decorate('forgetUser', (userId: number) => void userCache.delete(userId));
   app.decorate('requirePermission', (permission: Permission) => async (request: FastifyRequest) => {
     await authenticate(request);
-    if (!can(request.user.role, permission)) throw forbidden();
+    if (can(request.user.role, permission)) return;
+    // Some permissions can be granted to agents from the settings (e.g. sending to the carrier).
+    if (!settingsPermissions(request.user.role, await getSettings(app.db)).includes(permission)) throw forbidden();
   });
   app.decorate('startSession', async (reply: FastifyReply, userId: number) => {
     const token = await reply.jwtSign({ sub: userId });

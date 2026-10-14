@@ -16,6 +16,8 @@ export interface WebhookUpdate {
   tracking?: string;
   reference?: string;
   carrierStatus?: string;
+  /** Why a delivery failed or a parcel is held ("Client ne répond pas"…). */
+  reason?: string;
 }
 
 export class CarrierError extends Error {
@@ -35,6 +37,8 @@ export interface CarrierAdapter {
   handshake?(query: Record<string, string | undefined>): string | null;
   verifyWebhook?(carrier: LoadedCarrier, rawBody: string, headers: Record<string, string | string[] | undefined>): boolean;
   parseWebhook?(body: unknown): WebhookUpdate[];
+  /** Current status of parcels by tracking number — the regular check behind the webhook. */
+  fetchStatuses?(carrier: LoadedCarrier, trackings: string[]): Promise<WebhookUpdate[]>;
   /** Carrier tracking label → CRM status. */
   mapStatus(label: string): OrderStatus | null;
 }

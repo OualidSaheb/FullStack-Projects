@@ -174,6 +174,9 @@ export interface OrderListItem {
   callAttempts: number;
   nextCallAt: string | null;
   cancelReason: string | null;
+  /** Delivery company: tracking number and its latest status (with the failure reason, if any). */
+  carrierTracking: string | null;
+  carrierStatus: string | null;
   commentCount: number;
   lastComment: string | null;
   flags: OrderFlag[];
@@ -192,8 +195,6 @@ export interface OrderDetail extends OrderListItem {
   offerRaw: string | null;
   stopdeskId: string | null;
   carrierName: string | null;
-  carrierTracking: string | null;
-  carrierStatus: string | null;
   /** Delivery price the customer pays (from the carrier rates), null when unknown. */
   deliveryFee: number | null;
   items: OrderItemDTO[];

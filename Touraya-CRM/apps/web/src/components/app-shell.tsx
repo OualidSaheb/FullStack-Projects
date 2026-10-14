@@ -14,7 +14,7 @@ import { SyncAlert } from './sync-alert';
 const NAV: { to: string; label: string; short: string; icon: typeof ClipboardList; permission: Permission; mobile?: boolean }[] = [
   { to: '/work', label: 'وضع الاتصال', short: 'اتصال', icon: PhoneCall, permission: 'orders.status', mobile: true },
   { to: '/orders', label: 'الطلبيات', short: 'الطلبيات', icon: ClipboardList, permission: 'orders.view', mobile: true },
-  { to: '/shipping', label: 'التوصيل', short: 'التوصيل', icon: Truck, permission: 'shipping.export', mobile: true },
+  { to: '/shipping', label: 'التوصيل', short: 'التوصيل', icon: Truck, permission: 'shipping.send', mobile: true },
   { to: '/returns', label: 'المرتجعات', short: 'مرتجعات', icon: Undo2, permission: 'returns.manage' },
   { to: '/inventory', label: 'المخزون', short: 'المخزون', icon: Boxes, permission: 'inventory.view', mobile: true },
   { to: '/stats', label: 'الإحصائيات', short: 'إحصائيات', icon: BarChart3, permission: 'stats.view' },

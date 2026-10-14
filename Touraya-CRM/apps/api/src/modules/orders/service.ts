@@ -55,8 +55,6 @@ export async function getOrderDetail(ctx: AppContext, id: string): Promise<Order
     address: orders.address,
     offerRaw: orders.offerRaw,
     stopdeskId: orders.stopdeskId,
-    carrierTracking: orders.carrierTracking,
-    carrierStatus: orders.carrierStatus,
     raw: orders.raw,
     sheetName: orders.sheetName,
     sheetRow: orders.sheetRow,
@@ -66,7 +64,7 @@ export async function getOrderDetail(ctx: AppContext, id: string): Promise<Order
   }).where(eq(orders.id, id));
   if (!row) throw notFound('الطلبية غير موجودة');
 
-  const { leadId, phoneCustomer, phoneFacebook, phoneAlt, address, offerRaw, stopdeskId, carrierTracking, carrierStatus, raw, sheetName, sheetRow, customerId, blacklistReason, relatedOrderId, ...list } = row;
+  const { leadId, phoneCustomer, phoneFacebook, phoneAlt, address, offerRaw, stopdeskId, raw, sheetName, sheetRow, customerId, blacklistReason, relatedOrderId, ...list } = row;
   const base = toListItem(list, ctx.config.ORDER_PREFIX);
 
   // Every lookup that only needs the order runs together, then everything that needs its pieces:
@@ -97,7 +95,7 @@ export async function getOrderDetail(ctx: AppContext, id: string): Promise<Order
 
   return {
     ...base,
-    leadId, phoneCustomer, phoneFacebook, phoneAlt, address, offerRaw, stopdeskId, carrierTracking, carrierStatus, raw, sheetName, sheetRow,
+    leadId, phoneCustomer, phoneFacebook, phoneAlt, address, offerRaw, stopdeskId, raw, sheetName, sheetRow,
     carrierName: carrier?.name ?? null,
     deliveryFee: fee,
     items: detailItems,

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { AlertTriangle, ChevronDown, Copy, Link2, MapPin, Package, User } from 'lucide-react';
 import {
   BLOCKING_PHONE_ISSUES,
+  PARCEL_LOCKED_STATUSES,
   DELIVERY_TYPES,
   getWilaya,
   PHONE_ISSUES,
@@ -193,11 +194,16 @@ export function OrderPanel({ order, onOpenOrder }: { order: OrderDetail; onOpenO
   const can = useCan();
   const update = useInlineUpdate(order.id);
   const editable = can('orders.edit') && !order.deletedAt;
-  const shipped = ['ready_for_carrier', 'sent_to_carrier', 'carrier_received', 'delivered', 'returned', 'return_received'].includes(order.status);
+  const shipped = PARCEL_LOCKED_STATUSES.includes(order.status);
 
   return (
     <div className="space-y-4">
       <FlagBadges flags={order.flags} />
+      {order.status === 'delivery_failed' && (
+        <Alert tone="danger" icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>
+          <b>فشل التوصيل</b>{order.carrierStatus && <> — {order.carrierStatus}</>}. اتصل بالزبون الآن لإنقاذ الطرد قبل أن يرجع.
+        </Alert>
+      )}
       {order.duplicateOf && (
         <Alert tone="warn" icon={<Copy className="mt-0.5 size-4 shrink-0" />}>
           نفس الزبون عنده طلبية مفتوحة{' '}

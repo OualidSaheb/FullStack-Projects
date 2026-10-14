@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Loader2, Minus, Plus, Sparkles, X } from 'lucide-react';
-import { combinationLabel, combineOffers, unknownOptions, type OrderDetail, type OrderItemInput, type ProductDTO } from '@touraya/shared';
+import { combinationLabel, combineOffers, PARCEL_LOCKED_STATUSES, unknownOptions, type OrderDetail, type OrderItemInput, type ProductDTO } from '@touraya/shared';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useAddProductOptions, useInlineUpdate, useOffers, usePreviewOrder, useProducts, useRedraft } from '@/lib/queries';
@@ -63,7 +63,7 @@ export function ItemsEditor({ order }: { order: OrderDetail }) {
   const items = toInput(order);
   const product = products?.find((p) => p.id === (items[0]?.productId ?? -1));
   const tierPrice = useTierPrice(product?.id);
-  const locked = !can('orders.edit') || Boolean(order.deletedAt) || ['ready_for_carrier', 'sent_to_carrier', 'carrier_received', 'delivered', 'returned', 'return_received'].includes(order.status);
+  const locked = !can('orders.edit') || Boolean(order.deletedAt) || PARCEL_LOCKED_STATUSES.includes(order.status);
   // Closing the order before the delayed save fires still saves the last change.
   const pending = useRef<OrderItemInput[] | null>(null);
   const flushOnClose = useRef(() => {});

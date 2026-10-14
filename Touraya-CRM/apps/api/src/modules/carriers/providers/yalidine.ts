@@ -85,7 +85,7 @@ export const yalidine: CarrierAdapter = {
   },
 
   parseWebhook(payload): WebhookUpdate[] {
-    type Data = { tracking?: string; order_id?: string; status?: string; last_status?: string };
+    type Data = { tracking?: string; order_id?: string; status?: string; last_status?: string; reason?: string };
     const body = payload as { type?: string; events?: { event_type?: string; data?: Data }[]; data?: Data };
     const events = body.events ?? (body.data ? [{ event_type: body.type, data: body.data }] : []);
     return events.map((e) => ({
@@ -93,7 +93,27 @@ export const yalidine: CarrierAdapter = {
       tracking: e.data?.tracking,
       reference: e.data?.order_id,
       carrierStatus: e.data?.status ?? e.data?.last_status,
+      reason: e.data?.reason || undefined,
     }));
+  },
+
+  async fetchStatuses(c, trackings): Promise<WebhookUpdate[]> {
+    const out: WebhookUpdate[] = [];
+    for (let i = 0; i < trackings.length; i += 50) {
+      const batch = trackings.slice(i, i + 50);
+      const res = (await call(c, `/parcels/?tracking=${batch.map(encodeURIComponent).join(',')}&page_size=50`)) as {
+        data?: { tracking: string; order_id?: string; last_status?: string }[];
+      } | null;
+      for (const p of res?.data ?? []) out.push({ event: 'sync', tracking: p.tracking, reference: p.order_id, carrierStatus: p.last_status });
+    }
+    // A failed attempt: fetch why (the agent calls the customer with that in hand).
+    for (const u of out) {
+      if (!u.tracking || statusFromYalidine(u.carrierStatus ?? '') !== 'delivery_failed') continue;
+      const h = (await call(c, `/histories/${encodeURIComponent(u.tracking)}`).catch(() => null)) as { data?: { date_status?: string; reason?: string }[] } | null;
+      const last = [...(h?.data ?? [])].sort((a, b) => String(b.date_status).localeCompare(String(a.date_status)))[0];
+      if (last?.reason) u.reason = last.reason;
+    }
+    return out;
   },
 
   mapStatus: statusFromYalidine,

@@ -1,12 +1,14 @@
-import { Copy, Repeat, RotateCcw, Trash2, X } from 'lucide-react';
+import { useState } from 'react';
+import { Copy, Repeat, RotateCcw, Send, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@/lib/auth';
 import { fmtDateTime } from '@/lib/format';
 import { useBulkAction, useOrder, useReorder } from '@/lib/queries';
 import { StatusBadge } from '@/components/status';
-import { Badge, Drawer, IconButton, PageLoader } from '@/components/ui';
+import { Badge, Button, Drawer, IconButton, PageLoader } from '@/components/ui';
 import { OrderPanel } from './order-panel';
 import { OutcomeBar } from './parts/outcome';
+import { ExportReviewModal } from '../shipping/export-review-modal';
 
 export function OrderDrawer({ orderId, onClose, onOpenOrder }: { orderId: string | null; onClose: () => void; onOpenOrder?: (id: string) => void }) {
   const { data: order, isLoading } = useOrder(orderId);
@@ -14,6 +16,8 @@ export function OrderDrawer({ orderId, onClose, onOpenOrder }: { orderId: string
   const bulk = useBulkAction();
   const reorder = useReorder(orderId ?? '');
   const canReorder = order && can('orders.status') && ['cancelled', 'delivered', 'returned', 'return_received'].includes(order.status);
+  const [sending, setSending] = useState(false);
+  const canSend = order && !order.deletedAt && order.status === 'confirmed' && can('shipping.send');
 
   return (
     <Drawer open={Boolean(orderId)} onClose={onClose}>
@@ -60,12 +64,18 @@ export function OrderDrawer({ orderId, onClose, onOpenOrder }: { orderId: string
               </div>
             </div>
             <OutcomeBar order={order} className="mt-3" />
+            {canSend && (
+              <Button variant="primary" className="mt-2 w-full sm:w-auto" icon={<Send className="size-4" />} onClick={() => setSending(true)}>
+                إرسال لشركة التوصيل
+              </Button>
+            )}
           </header>
           <div className="flex-1 overflow-y-auto p-4 scroll-thin sm:p-5">
             <OrderPanel order={order} onOpenOrder={onOpenOrder} />
           </div>
         </>
       )}
+      {sending && order && <ExportReviewModal ids={[order.id]} onClose={() => setSending(false)} />}
     </Drawer>
   );
 }

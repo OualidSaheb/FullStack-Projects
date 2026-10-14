@@ -279,6 +279,51 @@ describe('carriers, shipping and stock', () => {
     expect(res).toMatchObject({ ok: false, status: 403, cfRay: 'a420504a18840f8d-EWR' });
     expect(res.message).toContain('1106');
   });
+
+  it('follows the parcel to delivery: out for delivery, failed attempt with its reason, hourly check, no going back', async () => {
+    const order = await find('Client 104');
+    const hook = (status: string, reason?: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/webhooks/yalidine',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ type: 'parcel_status_updated', events: [{ data: { tracking: 'yal-API1', status, ...(reason ? { reason } : {}) } }] }),
+      });
+    const detail = async () => (await api('GET', `/orders/${order.id}`)).json();
+
+    await hook('Sorti en livraison');
+    expect((await detail()).status).toBe('out_for_delivery');
+    await hook('Tentative échouée', 'Client ne répond pas');
+    expect(await detail()).toMatchObject({ status: 'delivery_failed', carrierStatus: 'Tentative échouée — Client ne répond pas' });
+    // The same news twice (webhook + hourly check) is recorded once.
+    expect((await hook('Tentative échouée', 'Client ne répond pas')).json()).toMatchObject({ applied: 0 });
+
+    // Hourly check (missed webhook): the carrier says delivered.
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      expect(String(url)).toContain('/parcels/?tracking=yal-API1');
+      return new Response(JSON.stringify({ data: [{ tracking: 'yal-API1', last_status: 'Livré' }] }), { status: 200 });
+    }));
+    const sync = (await api('POST', '/shipping/sync')).json();
+    vi.unstubAllGlobals();
+    expect(sync).toMatchObject({ checked: 1, applied: 1 });
+    expect((await detail()).status).toBe('delivered');
+
+    // An older event arriving late never moves it back.
+    await hook('Centre');
+    expect((await detail()).status).toBe('delivered');
+  });
+
+  it('agents send confirmed orders themselves when the setting allows it', async () => {
+    const agent = await login('a@test.dz', 'agent-pass');
+    expect((await api('GET', '/auth/me', undefined, agent)).json().permissions).toContain('shipping.send');
+    expect((await api('POST', '/shipping/preview', { ids: [] }, agent)).statusCode).not.toBe(403);
+    expect((await api('GET', '/shipping/exports', undefined, agent)).statusCode).toBe(403); // files stay with managers
+    const settings = (await api('GET', '/settings')).json();
+    await api('PUT', '/settings', { ...settings, agentsCanShip: false });
+    expect((await api('POST', '/shipping/send', { ids: [] }, agent)).statusCode).toBe(403);
+    expect((await api('GET', '/auth/me', undefined, agent)).json().permissions).not.toContain('shipping.send');
+    await api('PUT', '/settings', { ...settings, agentsCanShip: true });
+  });
 });
 
 describe('admin', () => {

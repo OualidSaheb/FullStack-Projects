@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { loginSchema, ROLE_PERMISSIONS } from '@touraya/shared';
+import { loginSchema, ROLE_PERMISSIONS, settingsPermissions } from '@touraya/shared';
+import { getSettings } from '../settings/service';
 import { users } from '../../db/schema';
 import { SESSION_COOKIE } from '../../lib/auth';
 import { verifyPassword } from '../../lib/crypto';
@@ -24,6 +25,6 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/auth/me', { preHandler: app.requireAuth }, async (req) => ({
     ...req.user,
-    permissions: ROLE_PERMISSIONS[req.user.role],
+    permissions: [...ROLE_PERMISSIONS[req.user.role], ...settingsPermissions(req.user.role, await getSettings(app.db))],
   }));
 };

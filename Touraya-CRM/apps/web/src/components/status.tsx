@@ -1,5 +1,5 @@
 import {
-  Ban, BadgeCheck, Clock, Package, PackageCheck, PhoneMissed, PhoneOff, Send, Sparkles, Truck, Undo2, Warehouse, type LucideIcon,
+  AlertTriangle, Ban, BadgeCheck, Bike, Clock, Package, PackageCheck, PhoneMissed, PhoneOff, Send, Sparkles, Store, Truck, Undo2, Warehouse, type LucideIcon,
 } from 'lucide-react';
 import { STATUS_META, type OrderStatus } from '@touraya/shared';
 import { cn } from '@/lib/cn';
@@ -17,6 +17,9 @@ const ICONS: Record<string, LucideIcon> = {
   'undo-2': Undo2,
   ban: Ban,
   warehouse: Warehouse,
+  bike: Bike,
+  store: Store,
+  'alert-triangle': AlertTriangle,
 };
 
 export function StatusIcon({ status, className }: { status: OrderStatus; className?: string }) {

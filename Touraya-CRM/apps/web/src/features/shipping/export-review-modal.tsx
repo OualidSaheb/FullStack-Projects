@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, Download, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import type { OrderStatus } from '@touraya/shared';
 import { api, ApiError, download } from '@/lib/api';
+import { useCan } from '@/lib/auth';
 import { errorMessage, qk, useCarriers } from '@/lib/queries';
 import { cn } from '@/lib/cn';
 import { StatusBadge } from '@/components/status';
@@ -21,6 +22,8 @@ interface Preview {
  */
 export function ExportReviewModal({ ids, onClose, onOpenOrder }: { ids: string[]; onClose: () => void; onOpenOrder?: (id: string) => void }) {
   const qc = useQueryClient();
+  const can = useCan();
+  const canFile = can('shipping.export');
   const { data: carriers } = useCarriers();
   const [carrierId, setCarrierId] = useState<number | undefined>();
   const { data, isLoading } = useQuery({
@@ -64,18 +67,20 @@ export function ExportReviewModal({ ids, onClose, onOpenOrder }: { ids: string[]
       open
       onClose={onClose}
       size="xl"
-      title={`مراجعة ملف التوصيل${data ? ` — ${data.carrier.name}` : ''}`}
+      title={`مراجعة الإرسال${data ? ` — ${data.carrier.name}` : ''}`}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>إلغاء</Button>
-          {data?.carrier.apiEnabled && (
-            <Button icon={<Send className="size-4" />} disabled={!valid.length} loading={sendApi.isPending} onClick={() => sendApi.mutate()}>
-              إرسال عبر API
+          {canFile && (
+            <Button variant={data?.carrier.apiEnabled ? 'secondary' : 'primary'} icon={<Download className="size-4" />} disabled={!valid.length} loading={exportFile.isPending} onClick={() => exportFile.mutate()}>
+              ملف Excel ({valid.length})
             </Button>
           )}
-          <Button variant="primary" icon={<Download className="size-4" />} disabled={!valid.length} loading={exportFile.isPending} onClick={() => exportFile.mutate()}>
-            تحميل الملف وتجهيز {valid.length} طلبية
-          </Button>
+          {data?.carrier.apiEnabled && (
+            <Button variant="primary" icon={<Send className="size-4" />} disabled={!valid.length} loading={sendApi.isPending} onClick={() => sendApi.mutate()}>
+              إرسال {valid.length} طلبية إلى {data.carrier.name}
+            </Button>
+          )}
         </>
       }
     >
@@ -88,9 +93,14 @@ export function ExportReviewModal({ ids, onClose, onOpenOrder }: { ids: string[]
               {carriers.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </Select>
           )}
+          {!data.carrier.apiEnabled && !canFile && (
+            <Alert tone="warn" icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>
+              الإرسال المباشر (API) غير مفعل لـ {data.carrier.name}. اطلب من المسؤول تفعيله في «شركات التوصيل»، أو إرسالها بملف Excel.
+            </Alert>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <Alert tone="ok" icon={<CheckCircle2 className="mt-0.5 size-4 shrink-0" />}>
-              <b>{valid.length}</b> طلبية جاهزة — ستتغير حالتها إلى «تم تجهيزها لشركة التوصيل» بعد التحميل.
+              <b>{valid.length}</b> طلبية جاهزة — بعد الإرسال يظهر رقم التتبع وتتابع حالتها وحدها، والقطع تخرج من المخزون.
             </Alert>
             {invalid.length > 0 && (
               <Alert tone="danger" icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>

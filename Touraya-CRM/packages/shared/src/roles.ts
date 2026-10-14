@@ -18,6 +18,7 @@ export const PERMISSIONS = [
   'orders.delete',
   'orders.purge',
   'shipping.export',
+  'shipping.send', // send confirmed orders to the carrier (API) — agents too when the setting allows it
   'returns.manage',
   'inventory.view',
   'inventory.manage',
@@ -37,6 +38,7 @@ const MANAGER: Permission[] = [
   'orders.assign',
   'orders.delete',
   'shipping.export',
+  'shipping.send',
   'returns.manage',
   'inventory.view',
   'inventory.manage',
@@ -54,4 +56,9 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
 
 export function can(role: Role, permission: Permission): boolean {
   return ROLE_PERMISSIONS[role].includes(permission);
+}
+
+/** Permissions an admin can grant to agents from the settings (on top of their role). */
+export function settingsPermissions(role: Role, settings: { agentsCanShip?: boolean }): Permission[] {
+  return role === 'agent' && settings.agentsCanShip ? ['shipping.send'] : [];
 }

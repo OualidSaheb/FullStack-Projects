@@ -29,6 +29,7 @@ export const DEFAULT_SETTINGS: Settings = {
   callPolicy: DEFAULT_CALL_POLICY,
   assignment: 'manual',
   duplicateWindowDays: 3,
+  agentsCanShip: true,
 };
 
 export async function getSettings(db: DbOrTx): Promise<Settings> {
