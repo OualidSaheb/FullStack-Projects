@@ -42,7 +42,8 @@ export function OutcomeBar({ order, onDone, showSelect = true, className }: { or
   };
   const noAnswer = nextCallAttempt(order.status);
   const inQueue = QUEUE_STATUSES.includes(order.status);
-  const options = ORDER_STATUSES.filter((s) => STATUS_META[s].manual || can('orders.status.any'));
+  // The current status is always listed (a carrier status the agent can't pick would otherwise show the first option).
+  const options = ORDER_STATUSES.filter((s) => s === order.status || STATUS_META[s].manual || can('orders.status.any'));
   const presets = postponePresets(new Date(), settings?.callPolicy ?? DEFAULT_CALL_POLICY);
   const big = 'h-12 flex-1 text-base sm:h-10 sm:flex-none sm:text-sm';
   // Three side by side on a phone: one row instead of two.
@@ -68,7 +69,7 @@ export function OutcomeBar({ order, onDone, showSelect = true, className }: { or
       )}
       {showSelect && (
         <Select className="h-9 text-sm sm:w-auto sm:min-w-44" value={order.status} onChange={(e) => (e.target.value === 'cancelled' ? setSheet('cancel') : apply({ status: e.target.value as OrderStatus }))} aria-label="تغيير الحالة">
-          {options.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+          {options.map((s) => <option key={s} value={s} disabled={s === order.status && !STATUS_META[s].manual && !can('orders.status.any')}>{STATUS_META[s].label}</option>)}
         </Select>
       )}
 

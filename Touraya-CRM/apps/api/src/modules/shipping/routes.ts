@@ -12,6 +12,7 @@ import { logEvents } from '../orders/events';
 import { emitStatusEvents, transitionContext, type StatusEvent } from '../orders/service';
 import { transitionStatus } from '../orders/transitions';
 import { FILE_TYPES, renderFile } from './file';
+import { linkExistingParcels } from './link';
 import { createExportBatch, listBatches, previewExport, sendViaApi } from './service';
 
 export const shippingRoutes: FastifyPluginAsync = async (app) => {
@@ -45,6 +46,12 @@ export const shippingRoutes: FastifyPluginAsync = async (app) => {
   app.post('/shipping/send', sender, async (req) => {
     const { ids, carrierId } = exportRequestSchema.parse(req.body);
     return sendViaApi(app, ids, req.user, carrierId);
+  });
+
+  /** Parcels sent before the platform (carrier dashboard, Excel): preview, then link to their orders. */
+  app.post('/shipping/link-existing', exporter, async (req) => {
+    const { apply } = z.object({ apply: z.boolean().default(false) }).parse(req.body ?? {});
+    return linkExistingParcels(app, req.user, apply);
   });
 
   /** "Update now": ask the carrier for the status of every parcel on its way. */

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Download, History, PackageCheck, RefreshCw, Send, Truck } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Download, History, Link2, PackageCheck, RefreshCw, Send, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { IN_TRANSIT_STATUSES, STATUS_META, type OrderListItem, type OrderStatus } from '@touraya/shared';
 import { api, download } from '@/lib/api';
@@ -11,7 +11,7 @@ import { errorMessage, qk, useBatches, useOrders } from '@/lib/queries';
 import { communeLabel, wilayaLabel } from '@/components/geo-select';
 import { CallButton } from '@/components/phone';
 import { StatusBadge } from '@/components/status';
-import { Alert, Button, Card, CardHeader, Checkbox, EmptyState, PageHeader, PageLoader } from '@/components/ui';
+import { Alert, Badge, Button, Card, CardHeader, Checkbox, EmptyState, Modal, PageHeader, PageLoader } from '@/components/ui';
 import { OrderDrawer } from '../orders/order-drawer';
 import { ExportReviewModal } from './export-review-modal';
 
@@ -97,6 +97,81 @@ function ParcelRow({ o, onOpen }: { o: OrderListItem; onOpen: (id: string) => vo
   );
 }
 
+interface LinkPreview {
+  parcels: number;
+  alreadyLinked: number;
+  links: { orderId: string; reference: string; customerName: string; from: OrderStatus; to: OrderStatus; tracking: string; carrierStatus: string | null; by: 'reference' | 'phone' }[];
+  unlinked: { tracking: string; name: string; phone: string; status: string | null; createdAt: string | null }[];
+}
+
+/** Parcels sent before the platform (carrier dashboard, Excel): found at the carrier, checked, then linked. */
+function LinkExistingModal({ onClose, onOpen }: { onClose: () => void; onOpen: (id: string) => void }) {
+  const qc = useQueryClient();
+  const [showUnlinked, setShowUnlinked] = useState(false);
+  const preview = useQuery({ queryKey: ['link-existing'], queryFn: () => api.post<LinkPreview>('/shipping/link-existing', { apply: false }), retry: false, gcTime: 0 });
+  const apply = useMutation({
+    mutationFn: () => api.post<LinkPreview>('/shipping/link-existing', { apply: true }),
+    onSuccess: (r) => {
+      toast.success(`تم ربط ${r.links.length} طلبية بطرودها`);
+      qc.invalidateQueries({ queryKey: qk.orders });
+      onClose();
+    },
+    onError: (e) => toast.error(errorMessage(e), { duration: 10_000 }),
+  });
+  const d = preview.data;
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title="ربط الطرود المرسلة سابقاً"
+      footer={<><Button variant="ghost" onClick={onClose}>إلغاء</Button><Button variant="primary" icon={<Link2 className="size-4" />} disabled={!d?.links.length} loading={apply.isPending} onClick={() => apply.mutate()}>ربط {d?.links.length ?? 0} طلبية</Button></>}
+    >
+      {preview.isLoading ? (
+        <div className="space-y-2 py-6 text-center text-sm text-muted"><PageLoader /><p>جاري قراءة كل الطرود من شركة التوصيل…</p></div>
+      ) : preview.error ? (
+        <Alert tone="danger" icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>{errorMessage(preview.error)}</Alert>
+      ) : d && (
+        <div className="space-y-3 text-sm">
+          <Alert tone="primary" icon={<Link2 className="mt-0.5 size-4 shrink-0" />}>
+            {d.parcels} طرد عند شركة التوصيل منذ أول طلبية في المنصة · <b>{d.links.length}</b> وُجدت طلبيتها
+            {d.alreadyLinked > 0 && <> · {d.alreadyLinked} مربوطة من قبل</>}
+            {d.unlinked.length > 0 && <> · {d.unlinked.length} بدون طلبية في المنصة</>}
+          </Alert>
+          <p className="text-xs text-muted">الربط برقم الطلبية إن كُتب عند شركة التوصيل، وإلا برقم الهاتف (آخر طلبية للزبون قبل الطرد). المخزون لا يتغير: هذه القطع خرجت من قبل.</p>
+          {d.links.length > 0 && (
+            <ul className="max-h-80 divide-y divide-line overflow-y-auto rounded-lg border border-line scroll-thin">
+              {d.links.map((l) => (
+                <li key={l.tracking} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+                  <button className="ltr font-semibold text-primary hover:underline" onClick={() => onOpen(l.orderId)}>{l.reference}</button>
+                  <span className="min-w-0 flex-1 truncate">{l.customerName}</span>
+                  <Badge>{l.by === 'reference' ? 'برقم الطلبية' : 'بالهاتف'}</Badge>
+                  <span className="flex items-center gap-1"><StatusBadge status={l.from} short /> ← <StatusBadge status={l.to} short /></span>
+                  <span className="ltr w-full text-xs text-muted sm:w-auto">{l.tracking} · {l.carrierStatus}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {d.unlinked.length > 0 && (
+            <div>
+              <button className="text-xs font-medium text-muted hover:text-fg" onClick={() => setShowUnlinked(!showUnlinked)}>{showUnlinked ? 'إخفاء' : 'عرض'} الطرود بدون طلبية ({d.unlinked.length})</button>
+              {showUnlinked && (
+                <ul className="mt-2 max-h-48 divide-y divide-line overflow-y-auto rounded-lg border border-line text-xs scroll-thin">
+                  {d.unlinked.map((u) => (
+                    <li key={u.tracking} className="flex flex-wrap gap-x-3 px-3 py-1.5">
+                      <span className="ltr">{u.tracking}</span><span>{u.name}</span><span className="ltr">{u.phone}</span><span className="text-muted">{u.status}</span>{u.createdAt && <span className="text-muted">{fmtDateTime(u.createdAt)}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 /**
  * Parcels with the delivery company, kept up to date by the carrier webhook
  * and an hourly check. Failed delivery attempts come first: calling the
@@ -104,6 +179,8 @@ function ParcelRow({ o, onOpen }: { o: OrderListItem; onOpen: (id: string) => vo
  */
 function TransitTab({ onOpen }: { onOpen: (id: string) => void }) {
   const qc = useQueryClient();
+  const can = useCan();
+  const [linking, setLinking] = useState(false);
   const { data, isLoading } = useOrders({ status: IN_TRANSIT_STATUSES, pageSize: 200, sort: 'updatedAt', dir: 'desc' });
   const [filter, setFilter] = useState<OrderStatus | null>(null);
   const sync = useMutation({
@@ -138,7 +215,13 @@ function TransitTab({ onOpen }: { onOpen: (id: string) => void }) {
         <Button size="sm" variant="ghost" className="ms-auto" icon={<RefreshCw className="size-3.5" />} loading={sync.isPending} onClick={() => sync.mutate()}>
           تحديث من شركة التوصيل
         </Button>
+        {can('shipping.export') && (
+          <Button size="sm" variant="ghost" icon={<Link2 className="size-3.5" />} onClick={() => setLinking(true)}>
+            ربط الطرود السابقة
+          </Button>
+        )}
       </div>
+      {linking && <LinkExistingModal onClose={() => setLinking(false)} onOpen={onOpen} />}
       <Card className="overflow-hidden">
         {isLoading ? <PageLoader /> : !shown.length ? <EmptyState icon={<Truck className="size-6" />} title="لا توجد طرود في الطريق" /> : <ul className="divide-y divide-line">{shown.map((o) => <ParcelRow key={o.id} o={o} onOpen={onOpen} />)}</ul>}
       </Card>

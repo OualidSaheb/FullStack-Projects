@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getWilaya, splitName, statusFromYalidine, type ExportableOrder } from '@touraya/shared';
-import { CarrierError, type CarrierAdapter, type LoadedCarrier, type ParcelResult, type WebhookUpdate } from '../types';
+import { CarrierError, type CarrierAdapter, type CarrierParcel, type LoadedCarrier, type ParcelResult, type WebhookUpdate } from '../types';
 
 /**
  * Explains failures in plain words. "403 / error code 1106" comes from
@@ -114,6 +114,30 @@ export const yalidine: CarrierAdapter = {
       const h = (await call(c, `/histories/${encodeURIComponent(u.tracking)}`).catch(() => null)) as { data?: { date_status?: string; reason?: string }[] } | null;
       const last = [...(h?.data ?? [])].sort((a, b) => String(b.date_status).localeCompare(String(a.date_status)))[0];
       if (last?.reason) u.reason = last.reason;
+    }
+    return out;
+  },
+
+  async listParcels(c, since): Promise<CarrierParcel[]> {
+    type Row = { tracking: string; order_id?: string; firstname?: string; familyname?: string; contact_phone?: string; date_creation?: string; last_status?: string };
+    const out: CarrierParcel[] = [];
+    for (let page = 1; page <= 50; page++) {
+      const res = (await call(c, `/parcels/?page=${page}&page_size=200`)) as { has_more?: boolean; data?: Row[] } | null;
+      for (const p of res?.data ?? []) {
+        // Yalidine dates are Algeria local time ("2026-09-26 10:12:45").
+        const createdAt = p.date_creation ? new Date(`${p.date_creation.trim().replace(' ', 'T')}+01:00`) : null;
+        if (createdAt && !Number.isNaN(createdAt.getTime()) && createdAt < since) continue;
+        out.push({
+          tracking: p.tracking,
+          reference: p.order_id || undefined,
+          name: [p.firstname, p.familyname].filter((v) => v && v !== '/').join(' '),
+          phones: String(p.contact_phone ?? '').split(/[,;/|]+/).map((v) => v.trim()).filter(Boolean),
+          createdAt: createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt : null,
+          status: p.last_status,
+        });
+      }
+      if (!res?.has_more) break;
+      await new Promise((r) => setTimeout(r, 300)); // Yalidine allows a few requests per second
     }
     return out;
   },

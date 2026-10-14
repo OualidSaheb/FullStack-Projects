@@ -22,6 +22,17 @@ export interface WebhookUpdate {
   payment?: string;
 }
 
+/** A parcel already at the carrier (e.g. created by hand in its dashboard), to link to its order. */
+export interface CarrierParcel {
+  tracking: string;
+  /** The order id typed at the carrier (our reference when the platform sent it). */
+  reference?: string;
+  name: string;
+  phones: string[];
+  createdAt: Date | null;
+  status?: string;
+}
+
 export class CarrierError extends Error {
   constructor(message: string, public details: Record<string, unknown> = {}) {
     super(message);
@@ -41,6 +52,8 @@ export interface CarrierAdapter {
   parseWebhook?(body: unknown): WebhookUpdate[];
   /** Current status of parcels by tracking number — the regular check behind the webhook. */
   fetchStatuses?(carrier: LoadedCarrier, trackings: string[]): Promise<WebhookUpdate[]>;
+  /** Every parcel of the account created since a date (linking parcels sent before the platform). */
+  listParcels?(carrier: LoadedCarrier, since: Date): Promise<CarrierParcel[]>;
   /** Carrier tracking label → CRM status. */
   mapStatus(label: string): OrderStatus | null;
 }
