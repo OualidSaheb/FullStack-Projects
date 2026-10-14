@@ -100,19 +100,26 @@ function ParcelRow({ o, onOpen }: { o: OrderListItem; onOpen: (id: string) => vo
 interface LinkPreview {
   parcels: number;
   alreadyLinked: number;
-  links: { orderId: string; reference: string; customerName: string; from: OrderStatus; to: OrderStatus; tracking: string; carrierStatus: string | null; by: 'reference' | 'phone' }[];
-  unlinked: { tracking: string; name: string; phone: string; status: string | null; createdAt: string | null }[];
+  links: { orderId: string; reference: string; customerName: string; from: OrderStatus; to: OrderStatus; tracking: string; carrierStatus: string | null; clues: MatchClue[]; strong: boolean }[];
+  unlinked: { tracking: string; name: string; phone: string; status: string | null; createdAt: string | null; ambiguous: boolean }[];
 }
+
+type MatchClue = 'reference' | 'phone' | 'wilaya' | 'commune' | 'price' | 'name';
+const CLUES: Record<MatchClue, string> = { reference: 'رقم الطلبية', phone: 'الهاتف', wilaya: 'الولاية', commune: 'البلدية', price: 'السعر', name: 'الاسم' };
 
 /** Parcels sent before the platform (carrier dashboard, Excel): found at the carrier, checked, then linked. */
 function LinkExistingModal({ onClose, onOpen }: { onClose: () => void; onOpen: (id: string) => void }) {
   const qc = useQueryClient();
   const [showUnlinked, setShowUnlinked] = useState(false);
+  const [picked, setPicked] = useState<Set<string> | null>(null);
   const preview = useQuery({ queryKey: ['link-existing'], queryFn: () => api.post<LinkPreview>('/shipping/link-existing', { apply: false }), retry: false, gcTime: 0 });
+  // Strong matches ticked by default; probable ones wait for the admin.
+  const selected = picked ?? new Set(preview.data?.links.filter((l) => l.strong).map((l) => l.tracking));
+  const toggle = (t: string) => setPicked(() => { const n = new Set(selected); if (n.has(t)) n.delete(t); else n.add(t); return n; });
   const apply = useMutation({
-    mutationFn: () => api.post<LinkPreview>('/shipping/link-existing', { apply: true }),
-    onSuccess: (r) => {
-      toast.success(`تم ربط ${r.links.length} طلبية بطرودها`);
+    mutationFn: () => api.post<LinkPreview>('/shipping/link-existing', { apply: true, trackings: [...selected] }),
+    onSuccess: () => {
+      toast.success(`تم ربط ${selected.size} طلبية بطرودها`);
       qc.invalidateQueries({ queryKey: qk.orders });
       onClose();
     },
@@ -125,7 +132,7 @@ function LinkExistingModal({ onClose, onOpen }: { onClose: () => void; onOpen: (
       onClose={onClose}
       size="lg"
       title="ربط الطرود المرسلة سابقاً"
-      footer={<><Button variant="ghost" onClick={onClose}>إلغاء</Button><Button variant="primary" icon={<Link2 className="size-4" />} disabled={!d?.links.length} loading={apply.isPending} onClick={() => apply.mutate()}>ربط {d?.links.length ?? 0} طلبية</Button></>}
+      footer={<><Button variant="ghost" onClick={onClose}>إلغاء</Button><Button variant="primary" icon={<Link2 className="size-4" />} disabled={!selected.size} loading={apply.isPending} onClick={() => apply.mutate()}>ربط {selected.size} طلبية</Button></>}
     >
       {preview.isLoading ? (
         <div className="space-y-2 py-6 text-center text-sm text-muted"><PageLoader /><p>جاري قراءة كل الطرود من شركة التوصيل…</p></div>
@@ -134,18 +141,22 @@ function LinkExistingModal({ onClose, onOpen }: { onClose: () => void; onOpen: (
       ) : d && (
         <div className="space-y-3 text-sm">
           <Alert tone="primary" icon={<Link2 className="mt-0.5 size-4 shrink-0" />}>
-            {d.parcels} طرد عند شركة التوصيل منذ أول طلبية في المنصة · <b>{d.links.length}</b> وُجدت طلبيتها
+            {d.parcels} طرد عند شركة التوصيل منذ أول طلبية في المنصة · <b>{d.links.filter((l) => l.strong).length}</b> وُجدت طلبيتها{d.links.some((l) => !l.strong) && <> · <b>{d.links.filter((l) => !l.strong).length}</b> محتملة (غير محددة — تحقق منها)</>}
             {d.alreadyLinked > 0 && <> · {d.alreadyLinked} مربوطة من قبل</>}
             {d.unlinked.length > 0 && <> · {d.unlinked.length} بدون طلبية في المنصة</>}
           </Alert>
-          <p className="text-xs text-muted">الربط برقم الطلبية إن كُتب عند شركة التوصيل، وإلا برقم الهاتف (آخر طلبية للزبون قبل الطرد). المخزون لا يتغير: هذه القطع خرجت من قبل.</p>
+          <p className="text-xs text-muted">
+            الربط برقم الطلبية إن كُتب عند شركة التوصيل. وإلا فـ Yalidine يخفي الهاتف والاسم، فتُعرف الطلبية بعدة علامات معاً: أول وآخر رقم في الهاتف، الولاية، البلدية، السعر، حروف الاسم الظاهرة. إذا تشابهت طلبيتان لزبونين مختلفين لا يُربط الطرد. راجع القائمة قبل الربط. المخزون لا يتغير: هذه القطع خرجت من قبل.
+          </p>
           {d.links.length > 0 && (
             <ul className="max-h-80 divide-y divide-line overflow-y-auto rounded-lg border border-line scroll-thin">
               {d.links.map((l) => (
-                <li key={l.tracking} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+                <li key={l.tracking} className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2', !l.strong && 'bg-warn/5')}>
+                  <Checkbox checked={selected.has(l.tracking)} onChange={() => toggle(l.tracking)} aria-label="ربط" />
                   <button className="ltr font-semibold text-primary hover:underline" onClick={() => onOpen(l.orderId)}>{l.reference}</button>
-                  <span className="min-w-0 flex-1 truncate">{l.customerName}</span>
-                  <Badge>{l.by === 'reference' ? 'برقم الطلبية' : 'بالهاتف'}</Badge>
+                  <span className="min-w-24 flex-1 truncate">{l.customerName}</span>
+                  {!l.strong && <span className="text-xs font-semibold text-warn">محتمل — تحقق</span>}
+                  <Badge>{l.clues.map((c) => CLUES[c]).join(' + ')}</Badge>
                   <span className="flex items-center gap-1"><StatusBadge status={l.from} short /> ← <StatusBadge status={l.to} short /></span>
                   <span className="ltr w-full text-xs text-muted sm:w-auto">{l.tracking} · {l.carrierStatus}</span>
                 </li>
@@ -159,7 +170,7 @@ function LinkExistingModal({ onClose, onOpen }: { onClose: () => void; onOpen: (
                 <ul className="mt-2 max-h-48 divide-y divide-line overflow-y-auto rounded-lg border border-line text-xs scroll-thin">
                   {d.unlinked.map((u) => (
                     <li key={u.tracking} className="flex flex-wrap gap-x-3 px-3 py-1.5">
-                      <span className="ltr">{u.tracking}</span><span>{u.name}</span><span className="ltr">{u.phone}</span><span className="text-muted">{u.status}</span>{u.createdAt && <span className="text-muted">{fmtDateTime(u.createdAt)}</span>}
+                      <span className="ltr">{u.tracking}</span>{u.ambiguous && <span className="text-warn">أكثر من طلبية محتملة</span>}<span>{u.name}</span><span className="ltr">{u.phone}</span><span className="text-muted">{u.status}</span>{u.createdAt && <span className="text-muted">{fmtDateTime(u.createdAt)}</span>}
                     </li>
                   ))}
                 </ul>

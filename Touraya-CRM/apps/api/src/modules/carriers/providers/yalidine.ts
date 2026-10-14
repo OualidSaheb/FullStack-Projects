@@ -119,11 +119,14 @@ export const yalidine: CarrierAdapter = {
   },
 
   async listParcels(c, since): Promise<CarrierParcel[]> {
-    type Row = { tracking: string; order_id?: string; firstname?: string; familyname?: string; contact_phone?: string; date_creation?: string; last_status?: string };
+    type Row = { tracking: string; order_id?: string; firstname?: string; familyname?: string; contact_phone?: string; date_creation?: string; last_status?: string; to_wilaya_id?: number | string; to_commune_name?: string; price?: number | string };
     const out: CarrierParcel[] = [];
+    const seen = new Set<string>();
     for (let page = 1; page <= 50; page++) {
       const res = (await call(c, `/parcels/?page=${page}&page_size=200`)) as { has_more?: boolean; data?: Row[] } | null;
       for (const p of res?.data ?? []) {
+        if (!p.tracking || seen.has(p.tracking)) continue;
+        seen.add(p.tracking);
         // Yalidine dates are Algeria local time ("2026-09-26 10:12:45").
         const createdAt = p.date_creation ? new Date(`${p.date_creation.trim().replace(' ', 'T')}+01:00`) : null;
         if (createdAt && !Number.isNaN(createdAt.getTime()) && createdAt < since) continue;
@@ -134,9 +137,13 @@ export const yalidine: CarrierAdapter = {
           phones: String(p.contact_phone ?? '').split(/[,;/|]+/).map((v) => v.trim()).filter(Boolean),
           createdAt: createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt : null,
           status: p.last_status,
+          wilayaCode: Number(p.to_wilaya_id) || undefined,
+          commune: p.to_commune_name || undefined,
+          price: p.price !== undefined && p.price !== null && p.price !== '' ? Number(p.price) : undefined,
         });
       }
-      if (!res?.has_more) break;
+      // Stop on an empty page or an explicit "no more" (some answers omit has_more).
+      if (!res?.data?.length || res.has_more === false) break;
       await new Promise((r) => setTimeout(r, 300)); // Yalidine allows a few requests per second
     }
     return out;

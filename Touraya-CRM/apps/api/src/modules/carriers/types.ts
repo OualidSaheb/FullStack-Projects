@@ -27,10 +27,14 @@ export interface CarrierParcel {
   tracking: string;
   /** The order id typed at the carrier (our reference when the platform sent it). */
   reference?: string;
+  /** Name and phones as the carrier gives them: Yalidine masks them in lists ("0********4", "S****a"). */
   name: string;
   phones: string[];
   createdAt: Date | null;
   status?: string;
+  wilayaCode?: number;
+  commune?: string;
+  price?: number;
 }
 
 export class CarrierError extends Error {

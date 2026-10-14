@@ -325,35 +325,35 @@ describe('carriers, shipping and stock', () => {
     expect(JSON.stringify(timeline)).toContain('receivable');
   });
 
-  it('links parcels sent before the platform to their orders (reference, then phone), without moving stock', async () => {
-    type Item = { id: string; reference: string; phone: string | null; status: string; carrierTracking: string | null; createdAt: string };
+  it('links parcels sent before the platform to their orders (reference, then masked clues), without moving stock', async () => {
+    type Item = { id: string; reference: string; customerName: string; phone: string | null; status: string; wilayaCode: number | null; price: number; carrierTracking: string | null; createdAt: string };
     const items: Item[] = (await api('GET', '/orders?pageSize=100')).json().items;
-    const free = items.filter((o) => !o.carrierTracking && o.status !== 'cancelled' && o.phone);
+    const free = items.filter((o) => !o.carrierTracking && o.status !== 'cancelled' && o.phone && o.wilayaCode);
     const byRef = free[0]!;
-    // By phone: the customer's latest order is the one linked.
-    const phoneOrder = free.filter((o) => o.id !== byRef.id && o.phone !== byRef.phone).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!;
-    const expected = free.filter((o) => o.phone === phoneOrder.phone).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!;
+    const target = free.find((o) => o.id !== byRef.id && o.price > 0)!;
+    // Yalidine lists hide phones and names: "0********1", "C*****t".
+    const mask = (s: string) => s[0] + '*'.repeat(s.length - 2) + s[s.length - 1];
     const moves = (await api('GET', '/inventory/movements')).json().length;
     const parcels = [
-      { tracking: 'yal-OLD1', order_id: byRef.reference, firstname: 'A', familyname: 'B', contact_phone: '0550000001', date_creation: '2099-01-01 10:00:00', last_status: 'Centre' },
-      { tracking: 'yal-OLD2', order_id: '', firstname: 'C', familyname: '/', contact_phone: phoneOrder.phone!.replace(/^0/, '+213'), date_creation: '2099-01-01 11:00:00', last_status: 'Livré' },
-      { tracking: 'yal-OLD3', order_id: 'x', firstname: 'Nobody', familyname: '', contact_phone: '0550999999', date_creation: '2099-01-01 12:00:00', last_status: 'Livré' },
-      { tracking: 'yal-API1', order_id: '', firstname: 'Known', familyname: '', contact_phone: '0550999998', date_creation: '2099-01-01 12:00:00', last_status: 'Livré' },
+      { tracking: 'yal-OLD1', order_id: byRef.reference, firstname: '/', familyname: 'X***', contact_phone: '0********1', date_creation: '2099-01-01 10:00:00', last_status: 'Centre' },
+      { tracking: 'yal-OLD2', order_id: '', firstname: '/', familyname: target.customerName.split(' ').map(mask).join(' '), contact_phone: mask(target.phone!), to_wilaya_id: target.wilayaCode, price: target.price, date_creation: '2099-01-01 11:00:00', last_status: 'Livré' },
+      { tracking: 'yal-OLD3', order_id: 'x', firstname: '/', familyname: 'N*****y', contact_phone: '0********9', to_wilaya_id: 58, price: 1, date_creation: '2099-01-01 12:00:00', last_status: 'Livré' },
+      { tracking: 'yal-API1', order_id: '', firstname: '/', familyname: 'K***n', contact_phone: '0********8', date_creation: '2099-01-01 12:00:00', last_status: 'Livré' },
     ];
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ has_more: false, data: parcels }), { status: 200 })));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify({ has_more: false, data: String(url).includes('page=1&') ? parcels : [] }), { status: 200 })));
     const preview = (await api('POST', '/shipping/link-existing', { apply: false })).json();
     expect(preview).toMatchObject({ parcels: 4, alreadyLinked: 1 });
     expect(preview.unlinked.map((u: { tracking: string }) => u.tracking)).toEqual(['yal-OLD3']);
     expect(preview.links).toEqual([
-      expect.objectContaining({ orderId: byRef.id, tracking: 'yal-OLD1', to: 'carrier_received', by: 'reference' }),
-      expect.objectContaining({ orderId: expected.id, tracking: 'yal-OLD2', to: 'delivered', by: 'phone' }),
+      expect.objectContaining({ orderId: byRef.id, tracking: 'yal-OLD1', to: 'carrier_received', clues: ['reference'] }),
+      expect.objectContaining({ orderId: target.id, tracking: 'yal-OLD2', to: 'delivered', strong: true, clues: expect.arrayContaining(['phone', 'wilaya', 'price', 'name']) }),
     ]);
     expect((await api('GET', `/orders/${byRef.id}`)).json().carrierTracking).toBeNull(); // preview changes nothing
 
-    await api('POST', '/shipping/link-existing', { apply: true });
+    await api('POST', '/shipping/link-existing', { apply: true, trackings: ['yal-OLD1', 'yal-OLD2'] });
     vi.unstubAllGlobals();
     expect((await api('GET', `/orders/${byRef.id}`)).json()).toMatchObject({ status: 'carrier_received', carrierTracking: 'yal-OLD1', carrierStatus: 'Centre' });
-    expect((await api('GET', `/orders/${expected.id}`)).json()).toMatchObject({ status: 'delivered', carrierTracking: 'yal-OLD2' });
+    expect((await api('GET', `/orders/${target.id}`)).json()).toMatchObject({ status: 'delivered', carrierTracking: 'yal-OLD2' });
     expect((await api('GET', '/inventory/movements')).json().length).toBe(moves);
   });
 

@@ -50,8 +50,8 @@ export const shippingRoutes: FastifyPluginAsync = async (app) => {
 
   /** Parcels sent before the platform (carrier dashboard, Excel): preview, then link to their orders. */
   app.post('/shipping/link-existing', exporter, async (req) => {
-    const { apply } = z.object({ apply: z.boolean().default(false) }).parse(req.body ?? {});
-    return linkExistingParcels(app, req.user, apply);
+    const { apply, trackings } = z.object({ apply: z.boolean().default(false), trackings: z.array(z.string()).max(5000).optional() }).parse(req.body ?? {});
+    return linkExistingParcels(app, req.user, apply, trackings);
   });
 
   /** "Update now": ask the carrier for the status of every parcel on its way. */
