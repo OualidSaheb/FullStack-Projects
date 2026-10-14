@@ -129,8 +129,8 @@ function CarrierForm({ carrier, onClose }: { carrier: CarrierDTO | null; onClose
                   </Field>
                   <Button icon={<Activity className="size-4" />} loading={test.isPending} onClick={() => test.mutate()}>اختبار الاتصال</Button>
                   {test.data && (
-                    <Alert tone={test.data.ok ? 'ok' : 'danger'}>
-                      {test.data.ok ? 'الاتصال ناجح ✓' : test.data.message}
+                    <Alert tone={test.data.ok ? (form.apiEnabled ? 'ok' : 'warn') : 'danger'}>
+                      {test.data.ok ? (form.apiEnabled ? 'الاتصال ناجح ✓' : 'الاتصال ناجح ✓ — لكن الإرسال لن يعمل حتى تفعّل «الإرسال المباشر عبر API» في الأعلى ثم تحفظ.') : test.data.message}
                       {test.data.cfRay && <span className="ltr block text-xs opacity-80">Cloudflare ray: {test.data.cfRay}</span>}
                     </Alert>
                   )}
