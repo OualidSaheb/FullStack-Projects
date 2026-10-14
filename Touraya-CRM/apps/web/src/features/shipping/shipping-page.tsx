@@ -107,6 +107,39 @@ interface LinkPreview {
 type MatchClue = 'reference' | 'phone' | 'wilaya' | 'commune' | 'price' | 'name';
 const CLUES: Record<MatchClue, string> = { reference: 'رقم الطلبية', phone: 'الهاتف', wilaya: 'الولاية', commune: 'البلدية', price: 'السعر', name: 'الاسم' };
 
+/** A parcel nothing matched: the admin types its order number (seen in Yalidine's dashboard). */
+function UnlinkedRow({ parcel: u }: { parcel: LinkPreview['unlinked'][number] }) {
+  const qc = useQueryClient();
+  const [reference, setReference] = useState('');
+  const [done, setDone] = useState<string | null>(null);
+  const link = useMutation({
+    mutationFn: () => api.post<{ reference: string; status: OrderStatus }>('/shipping/link-manual', { tracking: u.tracking, reference }),
+    onSuccess: (r) => {
+      setDone(r.reference);
+      qc.invalidateQueries({ queryKey: qk.orders });
+    },
+    onError: (e) => toast.error(errorMessage(e), { duration: 8000 }),
+  });
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5">
+      <span className="ltr font-medium">{u.tracking}</span>
+      {u.ambiguous && <span className="text-warn">أكثر من طلبية محتملة</span>}
+      <span>{u.name}</span>
+      <span className="ltr">{u.phone}</span>
+      <span className="text-muted">{u.status}</span>
+      {u.createdAt && <span className="text-muted">{fmtDateTime(u.createdAt)}</span>}
+      {done ? (
+        <span className="ms-auto font-semibold text-ok">← {done}</span>
+      ) : (
+        <form className="ms-auto flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); if (reference.trim()) link.mutate(); }}>
+          <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="رقم الطلبية" dir="ltr" className="h-7 w-24 rounded-md border border-line bg-surface px-2 text-xs" aria-label="رقم الطلبية" />
+          <Button size="sm" type="submit" disabled={!reference.trim()} loading={link.isPending}>ربط</Button>
+        </form>
+      )}
+    </li>
+  );
+}
+
 /** Parcels sent before the platform (carrier dashboard, Excel): found at the carrier, checked, then linked. */
 function LinkExistingModal({ onClose, onOpen }: { onClose: () => void; onOpen: (id: string) => void }) {
   const qc = useQueryClient();
@@ -167,12 +200,8 @@ function LinkExistingModal({ onClose, onOpen }: { onClose: () => void; onOpen: (
             <div>
               <button className="text-xs font-medium text-muted hover:text-fg" onClick={() => setShowUnlinked(!showUnlinked)}>{showUnlinked ? 'إخفاء' : 'عرض'} الطرود بدون طلبية ({d.unlinked.length})</button>
               {showUnlinked && (
-                <ul className="mt-2 max-h-48 divide-y divide-line overflow-y-auto rounded-lg border border-line text-xs scroll-thin">
-                  {d.unlinked.map((u) => (
-                    <li key={u.tracking} className="flex flex-wrap gap-x-3 px-3 py-1.5">
-                      <span className="ltr">{u.tracking}</span>{u.ambiguous && <span className="text-warn">أكثر من طلبية محتملة</span>}<span>{u.name}</span><span className="ltr">{u.phone}</span><span className="text-muted">{u.status}</span>{u.createdAt && <span className="text-muted">{fmtDateTime(u.createdAt)}</span>}
-                    </li>
-                  ))}
+                <ul className="mt-2 max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line text-xs scroll-thin">
+                  {d.unlinked.map((u) => <UnlinkedRow key={u.tracking} parcel={u} />)}
                 </ul>
               )}
             </div>

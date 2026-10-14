@@ -12,7 +12,10 @@ import {
   type OrderDetail,
 } from '@touraya/shared';
 import { fmtDA } from '@/lib/format';
-import { useInlineUpdate, useOffers, useProducts } from '@/lib/queries';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { api } from '@/lib/api';
+import { errorMessage, qk, useInlineUpdate, useOffers, useProducts } from '@/lib/queries';
 import { InlineSelect, InlineText } from '@/components/inline';
 import { StatusBadge } from '@/components/status';
 import { useCan } from '@/lib/auth';
@@ -24,6 +27,28 @@ import { CustomerCard } from './parts/customer-card';
 import { FlagBadges } from './parts/flags';
 import { ItemsEditor } from './parts/items-editor';
 import { PriceSummary } from './parts/price-summary';
+
+/** A parcel linked to the wrong order (from the carrier's list): undo, the order goes back as it was. */
+function UnlinkParcel({ orderId }: { orderId: string }) {
+  const qc = useQueryClient();
+  const unlink = useMutation({
+    mutationFn: () => api.post<{ status: string }>('/shipping/unlink', { orderId }),
+    onSuccess: () => {
+      toast.success('تم إلغاء الربط — الطلبية رجعت لحالتها السابقة');
+      qc.invalidateQueries({ queryKey: qk.orders });
+    },
+    onError: (e) => toast.error(errorMessage(e), { duration: 8000 }),
+  });
+  return (
+    <button
+      className="ms-2 text-xs text-muted underline hover:text-danger disabled:opacity-50"
+      disabled={unlink.isPending}
+      onClick={() => confirm('هذا الطرد ليس لهذه الطلبية؟ إلغاء الربط يرجع الطلبية لحالتها السابقة.') && unlink.mutate()}
+    >
+      إلغاء الربط
+    </button>
+  );
+}
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -263,7 +288,12 @@ export function OrderPanel({ order, onOpenOrder }: { order: OrderDetail; onOpenO
         <dl className="divide-y divide-line px-4">
           <LocationEditor order={order} disabled={!editable || shipped} />
           {order.carrierName && <Row label="الشركة">{order.carrierName}</Row>}
-          {order.carrierTracking && <Row label="رقم التتبع"><span className="ltr">{order.carrierTracking}</span></Row>}
+          {order.carrierTracking && (
+            <Row label="رقم التتبع">
+              <span className="ltr">{order.carrierTracking}</span>
+              {can('shipping.export') && <UnlinkParcel orderId={order.id} />}
+            </Row>
+          )}
           {order.carrierStatus && <Row label="حالة الناقل">{order.carrierStatus}</Row>}
           {order.cancelReason && <Row label="سبب الإلغاء">{order.cancelReason}</Row>}
         </dl>

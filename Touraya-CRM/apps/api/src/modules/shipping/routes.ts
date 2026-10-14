@@ -12,7 +12,7 @@ import { logEvents } from '../orders/events';
 import { emitStatusEvents, transitionContext, type StatusEvent } from '../orders/service';
 import { transitionStatus } from '../orders/transitions';
 import { FILE_TYPES, renderFile } from './file';
-import { linkExistingParcels } from './link';
+import { linkExistingParcels, linkParcelManually, unlinkParcel } from './link';
 import { createExportBatch, listBatches, previewExport, sendViaApi } from './service';
 
 export const shippingRoutes: FastifyPluginAsync = async (app) => {
@@ -52,6 +52,17 @@ export const shippingRoutes: FastifyPluginAsync = async (app) => {
   app.post('/shipping/link-existing', exporter, async (req) => {
     const { apply, trackings } = z.object({ apply: z.boolean().default(false), trackings: z.array(z.string()).max(5000).optional() }).parse(req.body ?? {});
     return linkExistingParcels(app, req.user, apply, trackings);
+  });
+
+  app.post('/shipping/link-manual', exporter, async (req) => {
+    const input = z.object({ tracking: z.string().trim().min(3), reference: z.string().trim().min(1) }).parse(req.body);
+    return linkParcelManually(app, req.user, input);
+  });
+
+  /** A wrong match from the carrier's list: back to the order's earlier status. */
+  app.post('/shipping/unlink', exporter, async (req) => {
+    const { orderId } = z.object({ orderId: z.string().uuid() }).parse(req.body);
+    return unlinkParcel(app, req.user, orderId);
   });
 
   /** "Update now": ask the carrier for the status of every parcel on its way. */

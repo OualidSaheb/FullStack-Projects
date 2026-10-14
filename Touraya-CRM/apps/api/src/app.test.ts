@@ -325,6 +325,18 @@ describe('carriers, shipping and stock', () => {
     expect(JSON.stringify(timeline)).toContain('receivable');
   });
 
+  it('never links a parcel whose visible name letters belong to someone else', async () => {
+    type Item = { id: string; customerName: string; phone: string | null; status: string; wilayaCode: number | null; price: number; carrierTracking: string | null };
+    const items: Item[] = (await api('GET', '/orders?pageSize=100')).json().items;
+    const o = items.find((i) => !i.carrierTracking && i.status !== 'cancelled' && i.phone && /^[a-z]/i.test(i.customerName) && !/^[qz]/i.test(i.customerName))!;
+    const phone = o.phone!;
+    const parcel = { tracking: 'yal-CLASH', order_id: '', firstname: 'Q*****', familyname: 'Z****', contact_phone: phone[0] + '********' + phone[phone.length - 1], to_wilaya_id: o.wilayaCode ?? undefined, price: o.price, date_creation: '2099-01-01 10:00:00', last_status: 'Livré' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify({ has_more: false, data: String(url).includes('page=1&') ? [parcel] : [] }), { status: 200 })));
+    const preview = (await api('POST', '/shipping/link-existing', { apply: false })).json();
+    vi.unstubAllGlobals();
+    expect(preview.links.find((l: { tracking: string }) => l.tracking === 'yal-CLASH')).toBeUndefined();
+  });
+
   it('links parcels sent before the platform to their orders (reference, then masked clues), without moving stock', async () => {
     type Item = { id: string; reference: string; customerName: string; phone: string | null; status: string; wilayaCode: number | null; price: number; carrierTracking: string | null; createdAt: string };
     const items: Item[] = (await api('GET', '/orders?pageSize=100')).json().items;
@@ -355,6 +367,35 @@ describe('carriers, shipping and stock', () => {
     expect((await api('GET', `/orders/${byRef.id}`)).json()).toMatchObject({ status: 'carrier_received', carrierTracking: 'yal-OLD1', carrierStatus: 'Centre' });
     expect((await api('GET', `/orders/${target.id}`)).json()).toMatchObject({ status: 'delivered', carrierTracking: 'yal-OLD2' });
     expect((await api('GET', '/inventory/movements')).json().length).toBe(moves);
+
+    // A wrong match is undone: back to the earlier status, no parcel, still no stock movement.
+    const unlinked = (await api('POST', '/shipping/unlink', { orderId: byRef.id })).json();
+    expect(unlinked).toMatchObject({ status: byRef.status });
+    expect((await api('GET', `/orders/${byRef.id}`)).json()).toMatchObject({ status: byRef.status, carrierTracking: null });
+    expect((await api('GET', '/inventory/movements')).json().length).toBe(moves);
+
+    // Linked by hand: the parcel's status is read from the carrier.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [{ tracking: 'yal-MAN1', last_status: 'Livré' }] }), { status: 200 })));
+    const manual = (await api('POST', '/shipping/link-manual', { tracking: 'yal-MAN1', reference: byRef.reference })).json();
+    vi.unstubAllGlobals();
+    expect(manual).toMatchObject({ ok: true, status: 'delivered' });
+    expect((await api('GET', `/orders/${byRef.id}`)).json()).toMatchObject({ status: 'delivered', carrierTracking: 'yal-MAN1' });
+    expect((await api('POST', '/shipping/link-manual', { tracking: 'yal-MAN1', reference: target.reference })).statusCode).toBe(409);
+  });
+
+  it('delivery statistics count parcels only: rates, money, payments, failure reasons', async () => {
+    const s = (await api('GET', '/stats/shipping')).json();
+    const crm = (await api('GET', '/stats')).json();
+    expect(s.totals.parcels).toBeGreaterThan(0);
+    expect(s.totals.parcels).toBeLessThan(crm.totals.all); // new / cancelled orders are not parcels
+    expect(s.totals.parcels).toBe(s.byStatus.reduce((n: number, x: { count: number }) => n + x.count, 0));
+    const finished = s.totals.delivered + s.totals.returned;
+    expect(s.totals.deliveryRate).toBeCloseTo((s.totals.delivered / finished) * 100, 0);
+    expect(s.totals.deliveryRate + s.totals.returnRate).toBeCloseTo(100, 0);
+    expect(s.payments).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'receivable', count: 1 })]));
+    expect(s.failReasons).toEqual(expect.arrayContaining([expect.objectContaining({ reason: 'Client ne répond pas' })]));
+    expect(s.byWilaya.length).toBeGreaterThan(0);
+    expect((await api('GET', '/stats/shipping?from=2100-01-01')).json().totals.parcels).toBe(0);
   });
 
   it('agents send confirmed orders themselves when the setting allows it', async () => {

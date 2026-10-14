@@ -1,7 +1,8 @@
-import { and, asc, eq, isNotNull, isNull, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { normalizePhone, STOCK_OUT_STATUSES, type OrderStatus } from '@touraya/shared';
 import { formatReference, parseReference, type AppContext } from '../../context';
-import { carriers, orders } from '../../db/schema';
+import { carriers, orderEvents, orders } from '../../db/schema';
+import { HttpError } from '../../lib/errors';
 import type { SessionUser } from '../../lib/auth';
 import { ADAPTERS } from '../carriers/registry';
 import { loadCarrierRow } from '../carriers/service';
@@ -43,7 +44,7 @@ const GRACE_MS = 24 * 3600_000;
 const MIN_SCORE = 6;
 const STRONG_SCORE = 7;
 
-const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const fold = (s: string) => s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 const isMasked = (s: string) => s.includes('*');
 
 /** "0********4" against a real number: same first and last digit (all digits when not masked). */
@@ -63,11 +64,30 @@ function wordFits(masked: string, word: string) {
   return true;
 }
 
-/** Some word of the carrier's (masked) name is a word of the customer's name. */
-function nameFits(given: string, name: string) {
-  const words = fold(name).split(/\s+/).filter(Boolean);
+const LATIN = /[a-z]/;
+const ARABIC = /[\u0600-\u06ff]/;
+
+/**
+ * The carrier's (masked) name against the customer's: "fit" when a word fits or
+ * the visible letters are the name's initials ("S****a T*****" → Saliha T…),
+ * "clash" when none of them is (same alphabet only: an Arabic name typed in
+ * Latin letters at the carrier proves nothing), otherwise no opinion.
+ */
+function nameVerdict(given: string, name: string): 'fit' | 'clash' | null {
+  const plain = fold(name);
+  const words = plain.split(/\s+/).filter(Boolean);
   const masked = fold(given).split(/\s+/).filter((w) => w.replace(/[*/]/g, '').length > 0);
-  return masked.some((m) => words.some((w) => (isMasked(m) ? wordFits(m, w) : m === w)));
+  if (!words.length || !masked.length) return null;
+  if (masked.some((m) => words.some((w) => (isMasked(m) ? wordFits(m, w) : m === w)))) return 'fit';
+  const visible = [...fold(given).replace(/[^\p{L}]/gu, '')];
+  if (!visible.length) return null;
+  const letters = visible.join('');
+  const sameScript = (LATIN.test(letters) && LATIN.test(plain)) || (ARABIC.test(letters) && ARABIC.test(plain));
+  if (!sameScript) return null;
+  const initials = new Set(words.map((w) => w[0]));
+  if (visible.every((c) => initials.has(c))) return 'fit';
+  if (!visible.some((c) => initials.has(c))) return 'clash';
+  return null;
 }
 
 /**
@@ -127,7 +147,10 @@ export async function linkExistingParcels(ctx: AppContext, user: SessionUser | n
       s += parcel.price === o.price ? 3 : 1;
       clues.push('price');
     }
-    if (parcel.name && nameFits(parcel.name, o.customerName)) {
+    // Visible letters of another name: another customer, whatever the other clues say.
+    const name = parcel.name ? nameVerdict(parcel.name, o.customerName) : null;
+    if (name === 'clash') return null;
+    if (name === 'fit') {
       s += 2;
       clues.push('name');
     }
@@ -198,30 +221,95 @@ export async function linkExistingParcels(ctx: AppContext, user: SessionUser | n
   result.links = matched.map((m) => m.link);
   if (!apply) return result;
 
-  const events: (StatusEvent | null)[] = [];
   // Only the parcels the admin ticked (default: the strong matches).
   const chosen = new Set(only ?? matched.filter((m) => m.link.strong).map((m) => m.link.tracking));
+  const events: (StatusEvent | null)[] = [];
   for (const { link, parcel, carrierId } of matched) {
-    if (!chosen.has(link.tracking)) continue;
-    await ctx.db.transaction(async (tx) => {
-      const [order] = await tx.select().from(orders).where(and(eq(orders.id, link.orderId), isNull(orders.carrierTracking)));
-      if (!order) return;
-      // These pieces left the shelf before the platform tracked parcels: the
-      // stock count already reflects it, so no movement now (a return still
-      // puts the pieces back when it is received).
-      const patch = {
-        carrierId,
-        carrierTracking: link.tracking,
-        carrierStatus: link.carrierStatus,
-        confirmedAt: order.confirmedAt ?? parcel.createdAt ?? new Date(),
-        ...(STOCK_OUT_STATUSES.includes(link.to) ? { stockOut: true } : {}),
-      };
-      await tx.update(orders).set(patch).where(eq(orders.id, order.id));
-      Object.assign(order, patch);
-      await logEvents(tx, { orderId: order.id, type: 'carrier_update', actorId: user?.id ?? null, data: { event: 'link', carrierStatus: link.carrierStatus, tracking: link.tracking, carrier: link.carrierName } });
-      events.push(await transitionStatus(await transitionContext(ctx, tx, user), order, link.to, { meta: { via: 'link' } }));
-    });
+    if (chosen.has(link.tracking)) events.push(await linkOrder(ctx, user, { ...link, carrierId, parcelCreatedAt: parcel.createdAt }));
   }
   emitStatusEvents(ctx, events);
   return result;
+}
+
+/**
+ * Puts a parcel on an order: tracking, the carrier's status, the matching CRM
+ * status. These pieces left the shelf before the platform tracked the parcel:
+ * the stock count already reflects it, so no movement now (a return still puts
+ * the pieces back when it is received).
+ */
+async function linkOrder(
+  ctx: AppContext,
+  user: SessionUser | null,
+  link: { orderId: string; tracking: string; carrierStatus: string | null; carrierName: string; carrierId: number; to: OrderStatus; parcelCreatedAt: Date | null },
+) {
+  return ctx.db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(and(eq(orders.id, link.orderId), isNull(orders.carrierTracking)));
+    if (!order) return null;
+    const patch = {
+      carrierId: link.carrierId,
+      carrierTracking: link.tracking,
+      carrierStatus: link.carrierStatus,
+      confirmedAt: order.confirmedAt ?? link.parcelCreatedAt ?? new Date(),
+      ...(STOCK_OUT_STATUSES.includes(link.to) ? { stockOut: true } : {}),
+    };
+    await tx.update(orders).set(patch).where(eq(orders.id, order.id));
+    Object.assign(order, patch);
+    await logEvents(tx, { orderId: order.id, type: 'carrier_update', actorId: user?.id ?? null, data: { event: 'link', carrierStatus: link.carrierStatus, tracking: link.tracking, carrier: link.carrierName } });
+    return transitionStatus(await transitionContext(ctx, tx, user), order, link.to, { meta: { via: 'link' } });
+  });
+}
+
+/** The admin links one parcel by hand: its tracking number on an order (status read from the carrier). */
+export async function linkParcelManually(ctx: AppContext, user: SessionUser | null, input: { tracking: string; reference: string }) {
+  const number = parseReference(input.reference);
+  const [order] = number === null ? [] : await ctx.db.select().from(orders).where(and(eq(orders.number, number), isNull(orders.deletedAt)));
+  if (!order) throw new HttpError(404, 'لا توجد طلبية بهذا الرقم');
+  if (order.carrierTracking) throw new HttpError(409, `هذه الطلبية مربوطة من قبل بالطرد ${order.carrierTracking}`);
+  const tracking = input.tracking.trim();
+  const [taken] = await ctx.db.select({ number: orders.number }).from(orders).where(eq(orders.carrierTracking, tracking));
+  if (taken) throw new HttpError(409, `هذا الطرد مربوط من قبل بالطلبية ${formatReference(ctx.config.ORDER_PREFIX, taken.number)}`);
+
+  const rows = await ctx.db.select().from(carriers).where(and(eq(carriers.active, true), eq(carriers.apiEnabled, true)));
+  for (const row of rows) {
+    const carrier = loadCarrierRow(ctx.secrets, row);
+    const adapter = ADAPTERS[carrier.provider];
+    const [found] = (await adapter?.fetchStatuses?.(carrier, [tracking])) ?? [];
+    if (!adapter || !found) continue;
+    const mapped = found.carrierStatus ? adapter.mapStatus(found.carrierStatus) : null;
+    const to: OrderStatus = mapped && mapped !== 'cancelled' ? mapped : 'sent_to_carrier';
+    const label = found.carrierStatus ? (found.reason ? `${found.carrierStatus} — ${found.reason}` : found.carrierStatus) : null;
+    emitStatusEvents(ctx, [await linkOrder(ctx, user, { orderId: order.id, tracking, carrierStatus: label, carrierName: carrier.name, carrierId: carrier.id, to, parcelCreatedAt: null })]);
+    return { ok: true, reference: formatReference(ctx.config.ORDER_PREFIX, order.number), status: to };
+  }
+  throw new HttpError(404, 'لم يُعثر على هذا الطرد عند شركة التوصيل');
+}
+
+/**
+ * Undoes a link made from the carrier's list (a wrong match): the order goes
+ * back to the status it had, without the parcel and without stock movement
+ * (linking moved none).
+ */
+export async function unlinkParcel(ctx: AppContext, user: SessionUser | null, orderId: string) {
+  return ctx.db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
+    if (!order?.carrierTracking) throw new HttpError(404, 'هذه الطلبية غير مربوطة بطرد');
+    const [linked] = await tx
+      .select({ data: orderEvents.data })
+      .from(orderEvents)
+      .where(and(eq(orderEvents.orderId, orderId), eq(orderEvents.type, 'status_changed'), sql`${orderEvents.data}->>'via' = 'link'`))
+      .orderBy(desc(orderEvents.createdAt))
+      .limit(1);
+    if (!linked) throw new HttpError(409, 'هذا الطرد أُرسل من المنصة نفسها، لا يمكن إلغاء ربطه');
+    const back = (linked.data as { from: OrderStatus }).from;
+    await tx
+      .update(orders)
+      .set({ status: back, carrierId: null, carrierTracking: null, carrierStatus: null, stockOut: false, updatedAt: new Date() })
+      .where(eq(orders.id, orderId));
+    await logEvents(tx, [
+      { orderId, type: 'carrier_update', actorId: user?.id ?? null, data: { event: 'unlink', tracking: order.carrierTracking } },
+      { orderId, type: 'status_changed', actorId: user?.id ?? null, data: { from: order.status, to: back, via: 'unlink' } },
+    ]);
+    ctx.events.emit('order.status_changed', [{ orderId, from: order.status, to: back, actorId: user?.id ?? null }]);
+    return { ok: true, status: back };
+  });
 }

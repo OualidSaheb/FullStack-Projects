@@ -8,6 +8,7 @@ import { wilayaLabel } from '@/components/geo-select';
 import { StatusIcon } from '@/components/status';
 import { Card, CardHeader, PageHeader, PageLoader, Select } from '@/components/ui';
 import { BarList, DailyColumns, StatTile } from './charts';
+import { ShippingStats } from './shipping-stats';
 
 const RANGES = [
   { key: 'today', label: 'اليوم', from: () => todayDZ() },
@@ -17,6 +18,7 @@ const RANGES = [
 ] as const;
 
 export function StatsPage() {
+  const [tab, setTab] = useState<'crm' | 'shipping'>('crm');
   const [range, setRange] = useState<(typeof RANGES)[number]['key']>('30d');
   const [offerId, setOfferId] = useState<number | undefined>();
   const { data: offers } = useOffers();
@@ -36,15 +38,29 @@ export function StatsPage() {
                 </button>
               ))}
             </div>
-            <Select className="h-9 w-auto text-sm" value={offerId ?? ''} onChange={(e) => setOfferId(e.target.value ? Number(e.target.value) : undefined)} aria-label="العرض">
+            {tab === 'crm' && <Select className="h-9 w-auto text-sm" value={offerId ?? ''} onChange={(e) => setOfferId(e.target.value ? Number(e.target.value) : undefined)} aria-label="العرض">
               <option value="">كل العروض</option>
               {offers?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </Select>
+            </Select>}
           </>
         }
       />
 
-      {isLoading || !data ? (
+      <nav className="flex gap-1 overflow-x-auto border-b border-line scroll-thin">
+        {([['crm', 'كل الطلبيات (CRM)'], ['shipping', 'شركة التوصيل']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={cn('-mb-px shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium transition', tab === key ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-fg')}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === 'shipping' ? (
+        <ShippingStats from={RANGES.find((r) => r.key === range)!.from()} />
+      ) : isLoading || !data ? (
         <PageLoader />
       ) : (
         <>

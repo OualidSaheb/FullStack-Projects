@@ -296,3 +296,44 @@ export interface StatsDTO {
     topVariants: { label: string; count: number }[];
   };
 }
+
+/** Rates for one group of parcels (wilaya, offer, agent, delivery type…). */
+export interface ParcelGroupStats {
+  count: number;
+  delivered: number;
+  returned: number;
+  /** Delivered out of the finished ones (delivered + returned), in %. */
+  rate: number;
+}
+
+/**
+ * Delivery company statistics: only the orders handed to the carrier (sent by
+ * API, by file, or linked), dated by their confirmation day.
+ */
+export interface ShippingStatsDTO {
+  totals: {
+    parcels: number;
+    inProgress: number;
+    delivered: number;
+    returned: number;
+    failedNow: number;
+    deliveryRate: number;
+    returnRate: number;
+    /** Price of delivered parcels (money collected by the carrier). */
+    revenueDelivered: number;
+    /** Price of parcels still on the way (cash expected). */
+    revenuePending: number;
+    /** Price of returned parcels (sales lost). */
+    revenueReturned: number;
+    /** Average days from confirmation to delivery (parcels followed live, not linked afterwards). */
+    avgDeliveryDays: number | null;
+  };
+  byStatus: { status: OrderStatus; count: number }[];
+  payments: { status: string; count: number; amount: number }[];
+  byWilaya: (ParcelGroupStats & { wilayaCode: number | null })[];
+  byOffer: (ParcelGroupStats & { offerId: number | null; name: string })[];
+  byAgent: (ParcelGroupStats & { userId: number | null; name: string })[];
+  byDeliveryType: (ParcelGroupStats & { deliveryType: string })[];
+  failReasons: { reason: string; count: number }[];
+  daily: { day: string; count: number; delivered: number; returned: number }[];
+}
