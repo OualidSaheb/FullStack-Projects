@@ -85,10 +85,8 @@ function toParcel(o: ExportableOrder, c: LoadedCarrier) {
     price: o.price,
     do_insurance: false,
     declared_value: o.price,
-    length: 0,
-    width: 0,
-    height: 0,
-    weight: 0,
+    // No dimensions / weight: any value sent (even 0) makes Yalidine mark the
+    // parcel "dépasse 5 KG: Oui". Set weight… in the extra fields when needed.
     freeshipping: false,
     is_stopdesk: o.deliveryType === 'stopdesk',
     ...(o.deliveryType === 'stopdesk' && o.stopdeskId ? { stopdesk_id: o.stopdeskId } : {}),
@@ -98,20 +96,35 @@ function toParcel(o: ExportableOrder, c: LoadedCarrier) {
   };
 }
 
+/** Yalidine refusing a parcel for missing dimensions or weight. */
+const DIMENSIONS_ASKED = /weight|length|width|height|poids|longueur|largeur|hauteur|dimension/i;
+/** Under 5 kg: billed weight = max(real, l × w × h × 0.0002) = 1 kg. */
+const SMALL_PARCEL = { length: 1, width: 1, height: 1, weight: 1 };
+
 export const yalidine: CarrierAdapter = {
   async test(c) {
     await call(c, '/wilayas/?page_size=1');
   },
 
   async createParcels(c, list): Promise<ParcelResult[]> {
-    const response = (await call(c, '/parcels/', { method: 'POST', body: JSON.stringify(list.map((o) => toParcel(o, c))) })) as Record<
-      string,
-      { success?: boolean; tracking?: string; message?: string }
-    >;
-    return list.map((o) => {
-      const r = response?.[o.reference];
-      return r?.success && r.tracking ? { reference: o.reference, ok: true, tracking: r.tracking } : { reference: o.reference, ok: false, message: r?.message ?? 'لم يتم إنشاء الطرد' };
-    });
+    type Answer = Record<string, { success?: boolean; tracking?: string; message?: string }>;
+    const post = (orders: ExportableOrder[], dims: boolean) =>
+      call(c, '/parcels/', { method: 'POST', body: JSON.stringify(orders.map((o) => ({ ...toParcel(o, c), ...(dims ? SMALL_PARCEL : {}) }))) }) as Promise<Answer>;
+    const result = (o: ExportableOrder, r?: Answer[string]): ParcelResult =>
+      r?.success && r.tracking ? { reference: o.reference, ok: true, tracking: r.tracking } : { reference: o.reference, ok: false, message: r?.message ?? 'لم يتم إنشاء الطرد' };
+
+    // Without dimensions first; if Yalidine insists on them, again with the smallest ones
+    // (only the refused parcels: the others were created, never twice).
+    let response: Answer;
+    try {
+      response = (await post(list, false)) ?? {};
+    } catch (e) {
+      if (!(e instanceof CarrierError) || !DIMENSIONS_ASKED.test(String(e.details.body ?? ''))) throw e;
+      response = (await post(list, true)) ?? {};
+    }
+    const retry = list.filter((o) => !response[o.reference]?.success && DIMENSIONS_ASKED.test(response[o.reference]?.message ?? ''));
+    if (retry.length) Object.assign(response, (await post(retry, true)) ?? {});
+    return list.map((o) => result(o, response[o.reference]));
   },
 
   handshake: (query) => query.crc_token ?? null,

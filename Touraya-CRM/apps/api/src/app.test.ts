@@ -269,6 +269,9 @@ describe('carriers, shipping and stock', () => {
     vi.unstubAllGlobals();
     expect(res.results[0]).toMatchObject({ ok: true, tracking: 'yal-API1' });
     expect(sent[0]).toMatchObject({ can_open: false, is_stopdesk: false, product_list: 'p 3pcs 4999', to_wilaya_name: 'Alger' });
+    // No dimensions: Yalidine would mark the parcel "over 5 kg".
+    expect(sent[0]).not.toHaveProperty('weight');
+    expect(sent[0]).not.toHaveProperty('length');
     expect((await api('GET', `/orders/${order.id}`)).json().status).toBe('sent_to_carrier');
   });
 
