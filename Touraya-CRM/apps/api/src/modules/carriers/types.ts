@@ -55,7 +55,8 @@ export interface CarrierAdapter {
   verifyWebhook?(carrier: LoadedCarrier, rawBody: string, headers: Record<string, string | string[] | undefined>): boolean;
   parseWebhook?(body: unknown): WebhookUpdate[];
   /** Current status of parcels by tracking number — the regular check behind the webhook. */
-  fetchStatuses?(carrier: LoadedCarrier, trackings: string[]): Promise<WebhookUpdate[]>;
+  /** `known`: the label stored for each tracking, so unchanged parcels cost no extra request. */
+  fetchStatuses?(carrier: LoadedCarrier, trackings: string[], known?: Map<string, string | null>): Promise<WebhookUpdate[]>;
   /** Every parcel of the account created since a date (linking parcels sent before the platform). */
   listParcels?(carrier: LoadedCarrier, since: Date): Promise<CarrierParcel[]>;
   /** Carrier tracking label → CRM status. */

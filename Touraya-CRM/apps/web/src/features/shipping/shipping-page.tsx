@@ -145,7 +145,7 @@ function LinkExistingModal({ onClose, onOpen }: { onClose: () => void; onOpen: (
   const qc = useQueryClient();
   const [showUnlinked, setShowUnlinked] = useState(false);
   const [picked, setPicked] = useState<Set<string> | null>(null);
-  const preview = useQuery({ queryKey: ['link-existing'], queryFn: () => api.post<LinkPreview>('/shipping/link-existing', { apply: false }), retry: false, gcTime: 0 });
+  const preview = useQuery({ queryKey: ['link-existing'], queryFn: () => api.post<LinkPreview>('/shipping/link-existing', { apply: false }), retry: false, gcTime: 0, staleTime: Infinity, refetchOnWindowFocus: false });
   // Strong matches ticked by default; probable ones wait for the admin.
   const selected = picked ?? new Set(preview.data?.links.filter((l) => l.strong).map((l) => l.tracking));
   const toggle = (t: string) => setPicked(() => { const n = new Set(selected); if (n.has(t)) n.delete(t); else n.add(t); return n; });

@@ -4,6 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 import { loadConfig } from './config';
 import { openDatabase, type Database } from './db/client';
 import { products, sources } from './db/schema';
+import { resetYalidineGates } from './modules/carriers/providers/yalidine';
 import { buildApp } from './app';
 import { ensureBootstrap, fillSingleOptions } from './seed';
 
@@ -396,6 +397,21 @@ describe('carriers, shipping and stock', () => {
     expect(s.failReasons).toEqual(expect.arrayContaining([expect.objectContaining({ reason: 'Client ne répond pas' })]));
     expect(s.byWilaya.length).toBeGreaterThan(0);
     expect((await api('GET', '/stats/shipping?from=2100-01-01')).json().totals.parcels).toBe(0);
+  });
+
+  it('after a Yalidine ban the platform stops calling it instead of prolonging the ban', async () => {
+    const [carrier] = (await api('GET', '/carriers')).json();
+    const banned = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'Rate limit exceeded, access temporarily banned', code: 429 } }), { status: 429 }));
+    vi.stubGlobal('fetch', banned);
+    const first = (await api('POST', `/carriers/${carrier.id}/test`)).json();
+    const again = (await api('POST', `/carriers/${carrier.id}/test`)).json();
+    await api('POST', '/shipping/sync');
+    vi.unstubAllGlobals();
+    resetYalidineGates();
+    expect(first).toMatchObject({ ok: false, status: 429 });
+    expect(first.message).toContain('حظر مؤقت');
+    expect(again.message).toContain('لن تتصل به قبل');
+    expect(banned).toHaveBeenCalledTimes(1); // only the first request reached Yalidine
   });
 
   it('agents send confirmed orders themselves when the setting allows it', async () => {

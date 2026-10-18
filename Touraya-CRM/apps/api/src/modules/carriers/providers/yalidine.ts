@@ -8,24 +8,66 @@ import { CarrierError, type CarrierAdapter, type CarrierParcel, type LoadedCarri
  * for the account, or the server IP is not allowed). A relay with a fixed IP
  * can be configured as the API base URL.
  */
-function describeFailure(status: number, body: string): string {
+function describeFailure(status: number, body: string, pausedUntil = 0): string {
   if (status === 403 && /1106|cloudflare/i.test(body))
     return 'Yalidine رفض الطلب (403 / Cloudflare 1106): الـ API غير مفعل للحساب أو عنوان IP غير مسموح. راسل Yalidine أو استعمل Relay بعنوان IP ثابت.';
   if (status === 401) return 'API ID أو API TOKEN غير صحيح';
-  if (status === 429) return 'تجاوزت حد الطلبات في Yalidine، أعد المحاولة بعد دقيقة';
+  if (status === 429)
+    return `Yalidine أوقف الاتصال مؤقتاً بسبب كثرة الطلبات (حظر مؤقت). المنصة متوقفة عن الاتصال به حتى ${timeDZ(pausedUntil)}، أعد المحاولة بعدها — الإعادة قبل ذلك تطيل الحظر. لم يُرسل شيء.`;
   return `خطأ من Yalidine (HTTP ${status})`;
+}
+
+/**
+ * Yalidine counts every request (a few per second, ~50 per minute, an hourly
+ * and a daily quota) and bans the account for a while when they are exceeded.
+ * So, per account: one request at a time, spaced out; the quota it reports is
+ * respected; and after a ban the platform stops asking for a while instead of
+ * knocking again (which keeps the ban going).
+ */
+const MIN_GAP_MS = process.env.NODE_ENV === 'test' ? 0 : 1250;
+const BAN_PAUSE_MS = 15 * 60_000;
+const gates = new Map<string, { queue: Promise<unknown>; last: number; pausedUntil: number }>();
+
+const timeDZ = (t: number) => new Date(t + 3600_000).toISOString().slice(11, 16);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Tests: forget pauses and spacing. */
+export const resetYalidineGates = () => gates.clear();
+
+/** The platform is not asking Yalidine right now (after a ban or an exhausted quota): when it will again. */
+export function yalidinePausedUntil(c: LoadedCarrier): Date | null {
+  const until = gates.get(c.credentials.apiId)?.pausedUntil ?? 0;
+  return until > Date.now() ? new Date(until) : null;
 }
 
 async function call(c: LoadedCarrier, path: string, init: RequestInit = {}) {
   if (!c.credentials.apiId || !c.credentials.apiToken) throw new CarrierError('أدخل API ID و API TOKEN في إعدادات شركة التوصيل');
-  const res = await fetch(`${c.config.apiBaseUrl.replace(/\/$/, '')}${path}`, {
-    ...init,
-    headers: { 'X-API-ID': c.credentials.apiId, 'X-API-TOKEN': c.credentials.apiToken, 'Content-Type': 'application/json', ...init.headers },
-    signal: AbortSignal.timeout(30_000),
+  const gate = gates.get(c.credentials.apiId) ?? { queue: Promise.resolve(), last: 0, pausedUntil: 0 };
+  gates.set(c.credentials.apiId, gate);
+  const run = gate.queue.then(async () => {
+    if (gate.pausedUntil > Date.now())
+      throw new CarrierError(`Yalidine أوقف الاتصال مؤقتاً بسبب كثرة الطلبات. المنصة لن تتصل به قبل ${timeDZ(gate.pausedUntil)} — أعد المحاولة بعدها. لم يُرسل شيء.`, { status: 429, paused: true });
+    const wait = gate.last + MIN_GAP_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    gate.last = Date.now();
+    const res = await fetch(`${c.config.apiBaseUrl.replace(/\/$/, '')}${path}`, {
+      ...init,
+      headers: { 'X-API-ID': c.credentials.apiId, 'X-API-TOKEN': c.credentials.apiToken, 'Content-Type': 'application/json', ...init.headers },
+      signal: AbortSignal.timeout(30_000),
+    });
+    const quota = { minute: res.headers.get('x-minute-quota-left'), hour: res.headers.get('x-hour-quota-left'), day: res.headers.get('x-day-quota-left') };
+    const now = Date.now();
+    // Nearly out of quota: wait for it to come back rather than get banned.
+    if (quota.day !== null && Number(quota.day) <= 3) gate.pausedUntil = Math.max(gate.pausedUntil, now + 6 * 3600_000);
+    else if (quota.hour !== null && Number(quota.hour) <= 3) gate.pausedUntil = Math.max(gate.pausedUntil, now + 3600_000 - (now % 3600_000) + 5_000);
+    else if (quota.minute !== null && Number(quota.minute) <= 2) gate.last = now + 60_000 - (now % 60_000);
+    const text = await res.text();
+    if (res.status === 429) gate.pausedUntil = Math.max(gate.pausedUntil, now + BAN_PAUSE_MS);
+    if (!res.ok) throw new CarrierError(describeFailure(res.status, text, gate.pausedUntil), { status: res.status, cfRay: res.headers.get('cf-ray'), body: text.slice(0, 500), quota });
+    return text ? JSON.parse(text) : null;
   });
-  const text = await res.text();
-  if (!res.ok) throw new CarrierError(describeFailure(res.status, text), { status: res.status, cfRay: res.headers.get('cf-ray'), body: text.slice(0, 500) });
-  return text ? JSON.parse(text) : null;
+  gate.queue = run.catch(() => undefined);
+  return run;
 }
 
 function toParcel(o: ExportableOrder, c: LoadedCarrier) {
@@ -99,7 +141,7 @@ export const yalidine: CarrierAdapter = {
     }));
   },
 
-  async fetchStatuses(c, trackings): Promise<WebhookUpdate[]> {
+  async fetchStatuses(c, trackings, known): Promise<WebhookUpdate[]> {
     const out: WebhookUpdate[] = [];
     for (let i = 0; i < trackings.length; i += 50) {
       const batch = trackings.slice(i, i + 50);
@@ -108,9 +150,11 @@ export const yalidine: CarrierAdapter = {
       } | null;
       for (const p of res?.data ?? []) out.push({ event: 'sync', tracking: p.tracking, reference: p.order_id, carrierStatus: p.last_status });
     }
-    // A failed attempt: fetch why (the agent calls the customer with that in hand).
+    // A new failed attempt: fetch why (the agent calls the customer with that in hand).
+    // Already known (same status as last time): no extra request.
     for (const u of out) {
       if (!u.tracking || statusFromYalidine(u.carrierStatus ?? '') !== 'delivery_failed') continue;
+      if (u.carrierStatus && known?.get(u.tracking)?.startsWith(u.carrierStatus)) continue;
       const h = (await call(c, `/histories/${encodeURIComponent(u.tracking)}`).catch(() => null)) as { data?: { date_status?: string; reason?: string }[] } | null;
       const last = [...(h?.data ?? [])].sort((a, b) => String(b.date_status).localeCompare(String(a.date_status)))[0];
       if (last?.reason) u.reason = last.reason;
@@ -124,6 +168,7 @@ export const yalidine: CarrierAdapter = {
     const seen = new Set<string>();
     for (let page = 1; page <= 50; page++) {
       const res = (await call(c, `/parcels/?page=${page}&page_size=200`)) as { has_more?: boolean; data?: Row[] } | null;
+      const before = seen.size;
       for (const p of res?.data ?? []) {
         if (!p.tracking || seen.has(p.tracking)) continue;
         seen.add(p.tracking);
@@ -142,9 +187,8 @@ export const yalidine: CarrierAdapter = {
           price: p.price !== undefined && p.price !== null && p.price !== '' ? Number(p.price) : undefined,
         });
       }
-      // Stop on an empty page or an explicit "no more" (some answers omit has_more).
-      if (!res?.data?.length || res.has_more === false) break;
-      await new Promise((r) => setTimeout(r, 300)); // Yalidine allows a few requests per second
+      // Stop on an empty page, an explicit "no more", or a page with nothing new (page ignored).
+      if (!res?.data?.length || res.has_more === false || seen.size === before) break;
     }
     return out;
   },

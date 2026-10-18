@@ -38,6 +38,10 @@ export interface UnlinkedParcel {
   ambiguous: boolean;
 }
 
+/** Parcels read from the carrier for the last preview (per carrier), kept a few minutes. */
+const listed = new Map<number, { at: number; parcels: CarrierParcel[] }>();
+const LIST_TTL_MS = 10 * 60_000;
+
 /** A parcel made a little before its order was saved (clock gaps, late sheet sync) still counts. */
 const GRACE_MS = 24 * 3600_000;
 /** Phone ends + wilaya + price: shown as probable. A name or commune on top (or a full phone): strong. */
@@ -164,7 +168,11 @@ export async function linkExistingParcels(ctx: AppContext, user: SessionUser | n
     const carrier = loadCarrierRow(ctx.secrets, row);
     const adapter = ADAPTERS[carrier.provider];
     if (!adapter?.listParcels) continue;
-    const parcels = await adapter.listParcels(carrier, new Date(oldest.at.getTime() - GRACE_MS));
+    // The list read for the preview is reused when linking: each page is a request Yalidine counts.
+    const cached = apply ? listed.get(carrier.id) : undefined;
+    const parcels = cached && Date.now() - cached.at < LIST_TTL_MS ? cached.parcels : await adapter.listParcels(carrier, new Date(oldest.at.getTime() - GRACE_MS));
+    if (!apply) listed.set(carrier.id, { at: Date.now(), parcels });
+    else listed.delete(carrier.id);
     result.parcels += parcels.length;
 
     const take = (parcel: CarrierParcel, order: Candidate, clues: MatchClue[], strong: boolean) => {

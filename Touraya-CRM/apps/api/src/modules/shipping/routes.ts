@@ -143,12 +143,12 @@ export async function syncCarrierStatuses(ctx: AppContext) {
     const adapter = ADAPTERS[carrier.provider];
     if (!adapter?.fetchStatuses) continue;
     const open = await ctx.db
-      .select({ tracking: orders.carrierTracking })
+      .select({ tracking: orders.carrierTracking, label: orders.carrierStatus })
       .from(orders)
       .where(and(eq(orders.carrierId, carrier.id), isNotNull(orders.carrierTracking), isNull(orders.deletedAt), inArray(orders.status, IN_TRANSIT_STATUSES)));
     const trackings = open.map((o) => o.tracking!).filter(Boolean);
     if (!trackings.length) continue;
-    const updates = await adapter.fetchStatuses(carrier, trackings);
+    const updates = await adapter.fetchStatuses(carrier, trackings, new Map(open.map((o) => [o.tracking!, o.label])));
     checked += trackings.length;
     applied += await applyCarrierUpdates(ctx, carrier, updates);
   }
