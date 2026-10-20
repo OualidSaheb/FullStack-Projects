@@ -27,6 +27,14 @@ import { privacyPage } from './modules/meta/privacy';
 import { statsRoutes } from './modules/stats/routes';
 import { userRoutes } from './modules/users/routes';
 
+/** Errors where the database host itself refuses (Neon quota exceeded…), whatever the driver wraps them in. */
+function databaseDown(err: unknown): boolean {
+  for (let e = err as { message?: string; cause?: unknown } | undefined, i = 0; e && i < 5; e = e.cause as typeof e, i++) {
+    if (/exceeded the (data transfer |compute time )?quota|compute time quota|endpoint is disabled/i.test(String(e.message ?? ''))) return true;
+  }
+  return false;
+}
+
 export async function buildApp(config: Config, db: Db): Promise<FastifyInstance> {
   const app = Fastify({
     logger: config.NODE_ENV === 'test' ? false : { level: config.NODE_ENV === 'production' ? 'info' : 'debug' },
@@ -44,6 +52,11 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     }
     if (err instanceof HttpError) {
       return reply.code(err.statusCode).send({ error: err.message, details: err.details });
+    }
+    // The database host refuses to work (free plan quota used up, or asleep / unreachable): say so plainly.
+    if (databaseDown(err)) {
+      req.log.error({ err }, 'database unavailable');
+      return reply.code(503).send({ error: 'قاعدة البيانات متوقفة مؤقتاً (تجاوز حد الاستعمال المجاني عند Neon). البيانات محفوظة — راجع لوحة Neon.' });
     }
     const status = (err as { statusCode?: number }).statusCode ?? 500;
     if (status >= 500) req.log.error({ err }, 'unhandled error');

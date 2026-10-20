@@ -7,7 +7,12 @@ import { ingestRows } from '../ingest/service';
 import { publicUrl } from '../sources/routes';
 import { connectPage, disconnectPage, facebookSource, listPages, metaReader, validSignature, type FacebookSource } from './service';
 
-const PULL_EVERY_MS = 10 * 60_000;
+/**
+ * The webhook brings leads within seconds; the pull is only the safety net.
+ * Hourly, like the carrier check: each run wakes the database (billed while
+ * awake), so rare runs at the same moment keep it asleep most of the time.
+ */
+const PULL_EVERY_MS = 60 * 60_000;
 /** Leads re-read on each pull before the last one (overlap: nothing slips between two pulls). */
 const PULL_OVERLAP_MS = 60 * 60_000;
 /** First pull after connecting: the last days (older leads came through the sheets). */
@@ -51,7 +56,7 @@ export async function pullLeads(app: FastifyInstance) {
 
 /**
  * Facebook Lead Ads connected directly (no Google Sheet): Meta calls the
- * webhook for each new lead; a pull every 10 minutes catches anything missed.
+ * webhook for each new lead; an hourly pull catches anything missed.
  */
 export const metaRoutes: FastifyPluginAsync = async (app) => {
   const manage = { preHandler: app.requirePermission('sources.manage') };

@@ -402,6 +402,16 @@ describe('carriers, shipping and stock', () => {
     expect((await api('GET', '/stats/shipping?from=2100-01-01')).json().totals.parcels).toBe(0);
   });
 
+  it('says the database is down (Neon quota) instead of a bare server error', async () => {
+    const spy = vi.spyOn(app.db, 'select').mockImplementationOnce(() => {
+      throw new Error('Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.');
+    });
+    const res = await api('GET', '/carriers');
+    spy.mockRestore();
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error).toContain('Neon');
+  });
+
   it('after a Yalidine ban the platform stops calling it instead of prolonging the ban', async () => {
     const [carrier] = (await api('GET', '/carriers')).json();
     const banned = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'Rate limit exceeded, access temporarily banned', code: 429 } }), { status: 429 }));
