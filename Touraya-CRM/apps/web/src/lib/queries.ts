@@ -72,11 +72,23 @@ export const useMe = () =>
     staleTime: 5 * 60_000,
   });
 
+/**
+ * Lists refresh every minute while someone uses the platform; a tab left open
+ * with nobody in front of it (an office PC overnight) stops asking, so the
+ * database can sleep. Any click or key brings the refresh back at once.
+ */
+let lastActivity = Date.now();
+if (typeof window !== 'undefined') {
+  for (const ev of ['pointerdown', 'keydown', 'scroll', 'touchstart'] as const) window.addEventListener(ev, () => (lastActivity = Date.now()), { passive: true });
+}
+const IDLE_MS = 15 * 60_000;
+const whileActive = () => (Date.now() - lastActivity < IDLE_MS ? 60_000 : false);
+
 export const useOrders = (q: Partial<OrderListQuery>) =>
-  useQuery({ queryKey: qk.orderList(q), queryFn: () => api.get<Paginated<OrderListItem>>('/orders', q as never), placeholderData: keepPreviousData, refetchInterval: 60_000 });
+  useQuery({ queryKey: qk.orderList(q), queryFn: () => api.get<Paginated<OrderListItem>>('/orders', q as never), placeholderData: keepPreviousData, refetchInterval: whileActive });
 
 export const useOrderCounts = (f: OrderFilter) =>
-  useQuery({ queryKey: qk.orderCounts(f), queryFn: () => api.get<StatusCounts>('/orders/counts', f as never), placeholderData: keepPreviousData, refetchInterval: 60_000 });
+  useQuery({ queryKey: qk.orderCounts(f), queryFn: () => api.get<StatusCounts>('/orders/counts', f as never), placeholderData: keepPreviousData, refetchInterval: whileActive });
 
 export const useOrder = (id: string | null) =>
   useQuery({ queryKey: qk.order(id ?? ''), queryFn: () => api.get<OrderDetail>(`/orders/${id}`), enabled: Boolean(id) });

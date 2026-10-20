@@ -11,6 +11,8 @@ import type { LoadedCarrier, WebhookUpdate } from '../carriers/types';
 import { logEvents } from '../orders/events';
 import { emitStatusEvents, transitionContext, type StatusEvent } from '../orders/service';
 import { transitionStatus } from '../orders/transitions';
+import { scheduleJob } from '../../lib/schedule';
+import { inNightPause } from '../settings/service';
 import { FILE_TYPES, renderFile } from './file';
 import { linkExistingParcels, linkParcelManually, unlinkParcel } from './link';
 import { createExportBatch, listBatches, previewExport, sendViaApi } from './service';
@@ -68,11 +70,8 @@ export const shippingRoutes: FastifyPluginAsync = async (app) => {
   /** "Update now": ask the carrier for the status of every parcel on its way. */
   app.post('/shipping/sync', sender, async () => syncCarrierStatuses(app));
 
-  // Behind the webhook: check every hour (a missed webhook, the platform asleep…). Not in tests.
-  if (app.config.NODE_ENV !== 'test') {
-    const timer = setInterval(() => void syncCarrierStatuses(app).catch((err) => app.log.warn({ err }, 'carrier status sync failed')), 60 * 60_000);
-    app.addHook('onClose', async () => clearInterval(timer));
-  }
+  // Behind the webhook: check every hour (a missed webhook, the night pause…).
+  scheduleJob(app, 'carrier status sync', 60 * 60_000, () => syncCarrierStatuses(app));
 };
 
 /** Order of the delivery steps: a late update never moves a parcel back to an earlier step. */
@@ -176,6 +175,8 @@ export const carrierWebhookRoutes: FastifyPluginAsync = async (app) => {
   };
 
   const receive = async (req: { params: unknown; body: unknown; headers: Record<string, string | string[] | undefined>; log: { warn: (m: string) => void; error: (o: object, m: string) => void } }) => {
+    // Night pause: the database sleeps; the morning check reads every parcel's current status.
+    if (inNightPause()) return { ok: true, deferred: true };
     try {
       const carrier = await resolve(req.params as { id?: string });
       const adapter = ADAPTERS[carrier.provider];

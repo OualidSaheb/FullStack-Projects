@@ -3,6 +3,9 @@ import { cn } from '@/lib/cn';
 import { Button, Card, CardHeader, Field, Input, PageLoader, Select, Switch, TagInput } from '@/components/ui';
 import { useSettingsForm } from './use-settings-form';
 
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const fmtHour = (h: number) => `${String(h).padStart(2, '0')}:00`;
+
 const DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
 const fmtDelay = (m: number) => (m % 1440 === 0 ? `${m / 1440} يوم` : m % 60 === 0 ? `${m / 60} سا` : `${m} د`);
@@ -69,6 +72,30 @@ export function SettingsTab() {
             <Switch checked={form.agentsCanShip} onChange={(agentsCanShip) => setForm({ ...form, agentsCanShip })} label="موظفو التأكيد يرسلون الطلبيات المؤكدة لشركة التوصيل (API) بأنفسهم" />
             <p className="mt-1 text-xs text-muted">ملف Excel وسجل الملفات يبقيان للمسؤولين فقط.</p>
           </div>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader title="الإيقاف الليلي (توفير قاعدة البيانات)" />
+        <div className="space-y-3 p-4 text-sm">
+          <Switch
+            checked={form.nightPause.enabled}
+            onChange={(enabled) => setForm({ ...form, nightPause: { ...form.nightPause, enabled } })}
+            label="لا تستعمل المنصة قاعدة البيانات في الليل (بتوقيت الجزائر)"
+          />
+          <div className={cn('flex flex-wrap items-center gap-2', !form.nightPause.enabled && 'opacity-50')}>
+            من
+            <Select className="h-9 w-24" value={form.nightPause.from} disabled={!form.nightPause.enabled} onChange={(e) => setForm({ ...form, nightPause: { ...form.nightPause, from: Number(e.target.value) } })} aria-label="من الساعة">
+              {HOURS.map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+            </Select>
+            إلى
+            <Select className="h-9 w-24" value={form.nightPause.to} disabled={!form.nightPause.enabled} onChange={(e) => setForm({ ...form, nightPause: { ...form.nightPause, to: Number(e.target.value) } })} aria-label="إلى الساعة">
+              {HOURS.map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+            </Select>
+          </div>
+          <p className="text-xs text-muted">
+            لا تضيع أي طلبية: شيتات Google تحتفظ بالطلبيات وترسلها صباحاً، وطلبيات Facebook وحالات الطرود تُجلب كلها عند انتهاء الإيقاف. المنصة نفسها تبقى مفتوحة؛ من يعمل في الليل يستطيع ذلك (لكن قاعدة البيانات تستيقظ).
+          </p>
         </div>
       </Card>
 

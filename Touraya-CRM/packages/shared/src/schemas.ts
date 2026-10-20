@@ -302,5 +302,14 @@ export const settingsSchema = z.object({
   duplicateWindowDays: z.number().int().min(0).max(30).default(3),
   /** Agents may send the orders they confirmed to the delivery company (API). */
   agentsCanShip: z.boolean().default(true),
+  /**
+   * Night pause (Algeria time): the platform leaves the database alone so the
+   * host can let it sleep (billed while awake). Nothing is lost: sheets keep
+   * their rows and send them in the morning, Facebook leads and parcel
+   * statuses are fetched by the morning check.
+   */
+  nightPause: z
+    .object({ enabled: z.boolean(), from: z.number().int().min(0).max(23), to: z.number().int().min(0).max(23) })
+    .default({ enabled: false, from: 22, to: 8 }),
 });
 export type Settings = z.infer<typeof settingsSchema>;

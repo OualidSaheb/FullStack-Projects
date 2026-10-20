@@ -816,3 +816,29 @@ describe('Facebook Lead Ads connected directly', () => {
     expect(res.body).toContain('سياسة الخصوصية');
   });
 });
+
+describe('night pause', () => {
+  it('night pause: nothing touches the database, the night\'s orders and parcel news come later', async () => {
+    const settings = (await api('GET', '/settings')).json();
+    const hour = (new Date().getUTCHours() + 1) % 24;
+    await api('PUT', '/settings', { ...settings, nightPause: { enabled: true, from: hour, to: (hour + 1) % 24 } });
+    const spy = vi.spyOn(app.db, 'select');
+
+    // Sheets: "come back later" — the script keeps the rows and sends them again.
+    const sheet = await ingest('Sheet1', [lead('night-1', { full_name: 'Night Client' })]);
+    // Yalidine and Facebook webhooks: answered, nothing read (the morning check brings their news).
+    const yal = await app.inject({ method: 'POST', url: '/api/webhooks/yalidine', headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ type: 'parcel_status_updated', events: [{ data: { tracking: 'yal-1', status: 'Livré' } }] }) });
+    const fb = await app.inject({ method: 'POST', url: '/api/meta/webhook', headers: { 'content-type': 'application/json' }, payload: '{"entry":[]}' });
+    const reads = spy.mock.calls.length;
+    spy.mockRestore();
+
+    expect(sheet.statusCode).toBe(503);
+    expect(yal.json()).toMatchObject({ ok: true, deferred: true });
+    expect(fb.json()).toMatchObject({ ok: true, deferred: true });
+    expect(reads).toBe(0);
+
+    // The pause over: the same rows go in.
+    await api('PUT', '/settings', { ...settings, nightPause: { enabled: false, from: 22, to: 8 } });
+    expect((await ingest('Sheet1', [lead('night-1', { full_name: 'Night Client' })])).json()).toMatchObject({ created: 1 });
+  });
+});

@@ -30,12 +30,26 @@ export const DEFAULT_SETTINGS: Settings = {
   assignment: 'manual',
   duplicateWindowDays: 3,
   agentsCanShip: true,
+  nightPause: { enabled: false, from: 22, to: 8 },
 };
+
+/** Last settings read: lets the night pause be checked without touching the database. */
+let current: Settings | null = null;
+export const cachedSettings = () => current;
+
+/** Algeria (UTC+1, no DST) hour inside the night pause? */
+export function inNightPause(s: Settings | null = current, now = new Date()): boolean {
+  if (!s?.nightPause.enabled) return false;
+  const { from, to } = s.nightPause;
+  const hour = (now.getUTCHours() + 1) % 24;
+  return from === to ? false : from < to ? hour >= from && hour < to : hour >= from || hour < to;
+}
 
 export async function getSettings(db: DbOrTx): Promise<Settings> {
   const [row] = await db.select().from(settings).where(eq(settings.key, KEY));
   const parsed = settingsSchema.safeParse({ ...DEFAULT_SETTINGS, ...(row?.value as object | undefined) });
-  return parsed.success ? parsed.data : DEFAULT_SETTINGS;
+  current = parsed.success ? parsed.data : DEFAULT_SETTINGS;
+  return current;
 }
 
 export async function saveSettings(db: DbOrTx, input: Settings): Promise<Settings> {

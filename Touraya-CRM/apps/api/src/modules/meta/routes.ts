@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { sources } from '../../db/schema';
 import { HttpError } from '../../lib/errors';
 import { ingestRows } from '../ingest/service';
+import { scheduleJob } from '../../lib/schedule';
+import { inNightPause } from '../settings/service';
 import { publicUrl } from '../sources/routes';
 import { connectPage, disconnectPage, facebookSource, listPages, metaReader, validSignature, type FacebookSource } from './service';
 
@@ -120,6 +122,8 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
 
   /** A new lead: answered at once (Meta retries slow answers), then fetched and imported. */
   app.post('/meta/webhook', async (req, reply) => {
+    // Night pause: the database sleeps; the morning pull brings this lead (Facebook keeps them 90 days).
+    if (inNightPause()) return reply.send({ ok: true, deferred: true });
     const source = await facebookSource(app.db);
     const raw = (req as unknown as { rawBody?: string }).rawBody ?? '';
     if (!source?.active) throw new HttpError(403, 'not connected');
@@ -150,9 +154,6 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
     return reply;
   });
 
-  // Safety net: pull every form's recent leads regularly (not in tests).
-  if (app.config.NODE_ENV !== 'test') {
-    const timer = setInterval(() => void pullLeads(app).catch((e) => app.log.warn({ err: e }, 'facebook pull failed')), PULL_EVERY_MS);
-    app.addHook('onClose', async () => clearInterval(timer));
-  }
+  // Safety net: pull every form's recent leads regularly; after the night pause, the whole night's.
+  scheduleJob(app, 'facebook pull', PULL_EVERY_MS, () => pullLeads(app));
 };

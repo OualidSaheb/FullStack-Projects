@@ -4,6 +4,7 @@ import { ingestSchema } from '@touraya/shared';
 import { z } from 'zod';
 import { sources } from '../../db/schema';
 import { HttpError } from '../../lib/errors';
+import { inNightPause } from '../settings/service';
 import { ingestRows } from './service';
 
 const sheetBody = ingestSchema.extend({
@@ -40,7 +41,10 @@ export const ingestRoutes: FastifyPluginAsync = async (app) => {
   }
 
   /** Google Apps Script. */
-  app.post('/ingest/sheets', { bodyLimit: 10 * 1024 * 1024 }, async (req) => {
+  app.post('/ingest/sheets', { bodyLimit: 10 * 1024 * 1024 }, async (req, reply) => {
+    // Night pause: "come back later" without touching the database. The script keeps the
+    // rows and sends them again on its next runs, so they arrive in the morning.
+    if (inNightPause()) return reply.code(503).send({ error: 'night pause', retry: true });
     const source = await sourceByToken(req.headers['x-touraya-token']);
     if (source.type === 'webhook') throw new HttpError(401, 'invalid token');
     const body = sheetBody.parse(req.body);
