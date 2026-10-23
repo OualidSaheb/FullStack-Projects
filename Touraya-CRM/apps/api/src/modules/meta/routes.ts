@@ -5,16 +5,17 @@ import { sources } from '../../db/schema';
 import { HttpError } from '../../lib/errors';
 import { ingestRows } from '../ingest/service';
 import { scheduleJob } from '../../lib/schedule';
-import { inNightPause } from '../settings/service';
+import { cachedSettings, inNightPause } from '../settings/service';
 import { publicUrl } from '../sources/routes';
 import { connectPage, disconnectPage, facebookSource, listPages, metaReader, validSignature, type FacebookSource } from './service';
 
 /**
- * The webhook brings leads within seconds; the pull is only the safety net.
- * Hourly, like the carrier check: each run wakes the database (billed while
- * awake), so rare runs at the same moment keep it asleep most of the time.
+ * The webhook brings leads within seconds; the pull is the safety net (and the
+ * only way in when Meta sends no webhook). Platform always on: every 5 minutes
+ * (the database is awake anyway). Otherwise hourly, like the carrier check, so
+ * the database can sleep between runs.
  */
-const PULL_EVERY_MS = 60 * 60_000;
+const pullEvery = () => (cachedSettings()?.alwaysOn ?? true ? 5 * 60_000 : 60 * 60_000);
 /** Leads re-read on each pull before the last one (overlap: nothing slips between two pulls). */
 const PULL_OVERLAP_MS = 60 * 60_000;
 /** First pull after connecting: the last days (older leads came through the sheets). */
@@ -155,5 +156,5 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // Safety net: pull every form's recent leads regularly; after the night pause, the whole night's.
-  scheduleJob(app, 'facebook pull', PULL_EVERY_MS, () => pullLeads(app));
+  scheduleJob(app, 'facebook pull', pullEvery, () => pullLeads(app));
 };

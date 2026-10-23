@@ -77,7 +77,7 @@ export function FacebookCard() {
               <CheckCircle2 className="size-4" /> متصل بالصفحة <b>{status.pageName}</b>
               {status.lastSyncAt && <span className="text-muted" title={fmtDateTime(status.lastSyncAt)}>· آخر نشاط {timeAgo(status.lastSyncAt)}</span>}
             </p>
-            <p className="text-xs text-muted">الطلبيات تصل خلال ثوانٍ، وتُراجع كل الفورمات كل ساعة احتياطاً. كل إجابات الأسئلة متعددة الاختيار تصل كاملة.</p>
+            <p className="text-xs text-muted">الطلبيات تصل خلال ثوانٍ، وتُراجع كل الفورمات كل 5 دقائق احتياطاً (كل ساعة إذا أطفأت «المنصة نشيطة دائماً»). كل إجابات الأسئلة متعددة الاختيار تصل كاملة.</p>
             <ul className="space-y-1 text-xs">
               <li>
                 آخر إشعار فوري من Facebook:{' '}
@@ -87,7 +87,7 @@ export function FacebookCard() {
             </ul>
             {!status.lastWebhookAt && (
               <p className="text-xs text-muted">
-                إذا لم يصل أي إشعار بعد طلبية تجريبية: تأكد أن التطبيق في وضع <b>Live</b> في Meta for Developers. الطلبيات تصل على كل حال عبر «سحب الآن» والمراجعة كل ساعة.
+                إذا لم يصل أي إشعار بعد طلبية تجريبية: تأكد أن التطبيق في وضع <b>Live</b> في Meta for Developers. الطلبيات تصل على كل حال عبر «سحب الآن» والمراجعة الدورية (كل 5 دقائق والمنصة نشيطة دائماً، وإلا كل ساعة).
               </p>
             )}
           </>
