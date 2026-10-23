@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { BarChart3, Bell, BellOff, Boxes, ClipboardList, LogOut, Menu, Moon, PhoneCall, Settings2, Sun, Trash2, Truck, Undo2, X } from 'lucide-react';
+import { BarChart3, Bell, Calculator, BellOff, Boxes, ClipboardList, LogOut, Menu, Moon, PhoneCall, Settings2, Sun, Trash2, Truck, Undo2, X } from 'lucide-react';
 import { ROLE_LABELS, type Permission } from '@touraya/shared';
 import { api, ApiError } from '@/lib/api';
 import { useCan } from '@/lib/auth';
@@ -17,6 +17,7 @@ const NAV: { to: string; label: string; short: string; icon: typeof ClipboardLis
   { to: '/shipping', label: 'التوصيل', short: 'التوصيل', icon: Truck, permission: 'shipping.send', mobile: true },
   { to: '/returns', label: 'المرتجعات', short: 'مرتجعات', icon: Undo2, permission: 'returns.manage' },
   { to: '/inventory', label: 'المخزون', short: 'المخزون', icon: Boxes, permission: 'inventory.view', mobile: true },
+  { to: '/calculator', label: 'حاسبة الربح', short: 'الحاسبة', icon: Calculator, permission: 'orders.view' },
   { to: '/stats', label: 'الإحصائيات', short: 'إحصائيات', icon: BarChart3, permission: 'stats.view' },
   { to: '/trash', label: 'المحذوفات', short: 'محذوفات', icon: Trash2, permission: 'orders.delete' },
   { to: '/admin', label: 'الإدارة والإعدادات', short: 'الإدارة', icon: Settings2, permission: 'sources.manage' },

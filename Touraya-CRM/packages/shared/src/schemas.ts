@@ -308,6 +308,23 @@ export const settingsSchema = z.object({
    * their rows and send them in the morning, Facebook leads and parcel
    * statuses are fetched by the morning check.
    */
+  /**
+   * Profit calculator values shared by everyone (set by an admin): the dollar's
+   * price, the fees per order. Each person can still change them on the page.
+   */
+  calculator: z
+    .object({
+      usdRate: z.number().min(0),
+      confirmFee: z.number().min(0),
+      confirmFeeOn: z.enum(['confirmed', 'delivered']),
+      sellerDeliveryFee: z.number().min(0),
+      returnFee: z.number().min(0),
+      packagingPerOrder: z.number().min(0),
+      codFeePct: z.number().min(0).max(100),
+      returnDamagePct: z.number().min(0).max(100),
+      targetMarginPct: z.number().min(0).max(90),
+    })
+    .default({ usdRate: 250, confirmFee: 0, confirmFeeOn: 'confirmed', sellerDeliveryFee: 0, returnFee: 0, packagingPerOrder: 0, codFeePct: 0, returnDamagePct: 0, targetMarginPct: 20 }),
   nightPause: z
     .object({ enabled: z.boolean(), from: z.number().int().min(0).max(23), to: z.number().int().min(0).max(23) })
     .default({ enabled: false, from: 22, to: 8 }),
