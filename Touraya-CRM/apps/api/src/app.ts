@@ -26,6 +26,7 @@ import { metaRoutes } from './modules/meta/routes';
 import { privacyPage } from './modules/meta/privacy';
 import { statsRoutes } from './modules/stats/routes';
 import { userRoutes } from './modules/users/routes';
+import { keepAlive } from './lib/keep-alive';
 
 /** Errors where the database host itself refuses (Neon quota exceeded…), whatever the driver wraps them in. */
 function databaseDown(err: unknown): boolean {
@@ -108,5 +109,6 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     );
   }
 
+  keepAlive(app);
   return app;
 }

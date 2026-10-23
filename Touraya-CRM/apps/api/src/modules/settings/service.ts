@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   assignment: 'manual',
   duplicateWindowDays: 3,
   agentsCanShip: true,
+  alwaysOn: true,
   nightPause: { enabled: false, from: 22, to: 8 },
   calculator: { usdRate: 250, confirmFee: 0, confirmFeeOn: 'confirmed', sellerDeliveryFee: 0, returnFee: 0, packagingPerOrder: 0, codFeePct: 0, returnDamagePct: 0, targetMarginPct: 20 },
 };

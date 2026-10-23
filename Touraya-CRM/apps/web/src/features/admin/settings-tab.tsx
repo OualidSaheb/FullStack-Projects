@@ -76,8 +76,13 @@ export function SettingsTab() {
       </Card>
 
       <Card>
-        <CardHeader title="الإيقاف الليلي (توفير قاعدة البيانات)" />
+        <CardHeader title="النشاط والإيقاف الليلي (قاعدة البيانات)" />
         <div className="space-y-3 p-4 text-sm">
+          <Switch checked={form.alwaysOn} onChange={(alwaysOn) => setForm({ ...form, alwaysOn })} label="المنصة نشيطة دائماً (لا تنام أبداً)" />
+          <p className="text-xs text-muted">
+            الصفحات تفتح فوراً بدون انتظار. تستهلك ساعات قاعدة البيانات طوال اليوم (~186 ساعة في الشهر): مناسب لخطة Neon المدفوعة. مع الخطة المجانية أطفئه وفعّل الإيقاف الليلي.
+          </p>
+          <hr className="border-line" />
           <Switch
             checked={form.nightPause.enabled}
             onChange={(enabled) => setForm({ ...form, nightPause: { ...form.nightPause, enabled } })}

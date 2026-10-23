@@ -325,6 +325,13 @@ export const settingsSchema = z.object({
       targetMarginPct: z.number().min(0).max(90),
     })
     .default({ usdRate: 250, confirmFee: 0, confirmFeeOn: 'confirmed', sellerDeliveryFee: 0, returnFee: 0, packagingPerOrder: 0, codFeePct: 0, returnDamagePct: 0, targetMarginPct: 20 }),
+  /**
+   * Always on: the server wakes itself (the free host sleeps after 15 minutes
+   * without visits) and keeps the database warm (it sleeps after 5 minutes),
+   * so pages open at once. Costs database hours: turn it off, and use the
+   * night pause, on a free database plan.
+   */
+  alwaysOn: z.boolean().default(true),
   nightPause: z
     .object({ enabled: z.boolean(), from: z.number().int().min(0).max(23), to: z.number().int().min(0).max(23) })
     .default({ enabled: false, from: 22, to: 8 }),
