@@ -752,7 +752,7 @@ describe('Facebook Lead Ads connected directly', () => {
       { name: 'اختاري_الالوان', values: colors },
     ],
   });
-  const leads: Record<string, ReturnType<typeof lead>> = { L1: lead('L1', 'FB direct 1', ['أسود', 'رمادي']), L2: lead('L2', 'FB direct 2', ['بني']) };
+  const leads: Record<string, ReturnType<typeof lead>> = { L1: lead('L1', 'FB direct 1', ['أسود', 'رمادي']), L2: lead('L2', 'FB direct 2', ['بني']), L3: { ...lead('L3', 'Brand page lead', ['بني']), form_id: 'F2' } };
   const creds = { appId: '123456', appSecret: 'app-secret-abcdef', token: 'system-user-token-0123456789' };
   const sign = (body: string) => `sha256=${require('node:crypto').createHmac('sha256', creds.appSecret).update(body).digest('hex')}`;
 
@@ -762,12 +762,15 @@ describe('Facebook Lead Ads connected directly', () => {
       const url = new URL(req.url!, 'http://graph');
       const send = (code: number, body: unknown) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(body));
       const p = url.pathname;
-      if (p === '/me/accounts') return send(200, { data: [{ id: 'PAGE1', name: 'Touraya', access_token: 'page-token' }] });
+      if (p === '/me/accounts') return send(200, { data: [{ id: 'PAGE1', name: 'Touraya', access_token: 'page-token' }, { id: 'PAGE2', name: 'Touraya Brand', access_token: 'page2-token' }] });
       if (p === `/${creds.appId}/subscriptions` && req.method === 'POST') {
         const check = await app.inject({ method: 'GET', url: `/api/meta/webhook?hub.mode=subscribe&hub.verify_token=${url.searchParams.get('verify_token')}&hub.challenge=42` });
         return check.body === '42' ? send(200, { success: true }) : send(400, { error: { message: 'verify failed', code: 2200 } });
       }
-      if (p === '/PAGE1/subscribed_apps') return send(200, { success: true });
+      if (p === '/PAGE1/subscribed_apps' || p === '/PAGE2/subscribed_apps') return send(200, { success: true });
+      if (p === '/PAGE2/leadgen_forms') return send(200, { data: [{ id: 'F2', name: 'pants 2pcs 3500 - brand' }] });
+      if (p === '/F2/leads') return send(200, { data: [] });
+      if (p === '/F2') return send(200, { id: 'F2', name: 'pants 2pcs 3500 - brand' });
       if (p === '/PAGE1/leadgen_forms') return send(200, { data: [{ id: 'F1', name: 'pants 2pcs 3500 - fb direct' }] });
       if (p === '/F1/leads') return send(200, { data: [leads.L1] });
       if (p === '/F1') return send(200, { id: 'F1', name: 'pants 2pcs 3500 - fb direct' });
@@ -781,10 +784,10 @@ describe('Facebook Lead Ads connected directly', () => {
   afterAll(() => graphServer.close());
 
   it('lists the pages of the token, connects one and brings its recent leads (all chosen colors)', async () => {
-    expect((await api('POST', '/meta/pages', creds)).json()).toEqual([{ id: 'PAGE1', name: 'Touraya' }]);
+    expect((await api('POST', '/meta/pages', creds)).json()).toEqual([{ id: 'PAGE1', name: 'Touraya' }, { id: 'PAGE2', name: 'Touraya Brand' }]);
     const res = await api('POST', '/meta/connect', { ...creds, pageId: 'PAGE1' });
     expect(res.json()).toMatchObject({ pageName: 'Touraya', created: 1 });
-    expect((await api('GET', '/meta')).json()).toMatchObject({ connected: true, pageName: 'Touraya', lastError: null });
+    expect((await api('GET', '/meta')).json()).toMatchObject({ connected: true, pages: [{ pageName: 'Touraya', lastError: null }] });
     const order = await find('FB direct 1');
     const detail = (await api('GET', `/orders/${order.id}`)).json();
     expect(detail).toMatchObject({ offerName: 'pants 2pcs 3500', wilayaCode: 31, communeName: 'Bir El Djir' });
@@ -797,12 +800,26 @@ describe('Facebook Lead Ads connected directly', () => {
     const body = JSON.stringify({ object: 'page', entry: [{ id: 'PAGE1', changes: [{ field: 'leadgen', value: { leadgen_id: 'L2', page_id: 'PAGE1', form_id: 'F1' } }] }] });
     const forged = await app.inject({ method: 'POST', url: '/api/meta/webhook', payload: body, headers: { 'content-type': 'application/json', 'x-hub-signature-256': 'sha256=00' } });
     expect(forged.statusCode).toBe(403);
-    expect((await api('GET', '/meta')).json().lastError).toContain('App Secret'); // the admin sees why
+    expect((await api('GET', '/meta')).json().pages[0].lastError).toContain('App Secret'); // the admin sees why
     const ok = await app.inject({ method: 'POST', url: '/api/meta/webhook', payload: body, headers: { 'content-type': 'application/json', 'x-hub-signature-256': sign(body) } });
     expect(ok.statusCode).toBe(200);
     for (let i = 0; i < 50 && !(await find('FB direct 2')); i++) await new Promise((r) => setTimeout(r, 20));
     expect(await find('FB direct 2')).toMatchObject({ customerName: 'FB direct 2' });
-    expect((await api('GET', '/meta')).json()).toMatchObject({ lastError: null, lastWebhookAt: expect.any(String) });
+    expect((await api('GET', '/meta')).json().pages[0]).toMatchObject({ lastError: null, lastWebhookAt: expect.any(String) });
+  });
+
+  it('a second page connects beside the first; its leads land in its own source', async () => {
+    expect((await api('POST', '/meta/connect', { ...creds, pageId: 'PAGE2' })).json()).toMatchObject({ pageName: 'Touraya Brand' });
+    const pages = (await api('GET', '/meta')).json().pages as { id: number; pageName: string }[];
+    expect(pages.map((p) => p.pageName)).toEqual(['Touraya', 'Touraya Brand']);
+    const body = JSON.stringify({ object: 'page', entry: [{ id: 'PAGE2', changes: [{ field: 'leadgen', value: { leadgen_id: 'L3', page_id: 'PAGE2', form_id: 'F2' } }] }] });
+    expect((await app.inject({ method: 'POST', url: '/api/meta/webhook', payload: body, headers: { 'content-type': 'application/json', 'x-hub-signature-256': sign(body) } })).statusCode).toBe(200);
+    for (let i = 0; i < 50 && !(await find('Brand page lead')); i++) await new Promise((r) => setTimeout(r, 20));
+    const order = (await api('GET', `/orders/${(await find('Brand page lead')).id}`)).json();
+    expect(order.sourceName).toContain('Touraya Brand');
+    // Disconnecting one page leaves the other.
+    await app.inject({ method: 'DELETE', url: `/api/meta/${pages[1]!.id}`, headers: { cookie: adminCookie } });
+    expect((await api('GET', '/meta')).json().pages.map((p: { pageName: string }) => p.pageName)).toEqual(['Touraya']);
   });
 
   it('the same lead coming again from the Google Sheet is not duplicated', async () => {

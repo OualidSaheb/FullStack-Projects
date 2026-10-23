@@ -7,7 +7,7 @@ import { ingestRows } from '../ingest/service';
 import { scheduleJob } from '../../lib/schedule';
 import { cachedSettings, inNightPause } from '../settings/service';
 import { publicUrl } from '../sources/routes';
-import { connectPage, disconnectPage, facebookSource, listPages, metaReader, validSignature, type FacebookSource } from './service';
+import { connectPage, disconnectPage, facebookSources, listPages, metaReader, validSignature, type FacebookSource } from './service';
 
 /**
  * The webhook brings leads within seconds; the pull is the safety net (and the
@@ -18,8 +18,8 @@ import { connectPage, disconnectPage, facebookSource, listPages, metaReader, val
 const pullEvery = () => (cachedSettings()?.alwaysOn ?? true ? 5 * 60_000 : 60 * 60_000);
 /** Leads re-read on each pull before the last one (overlap: nothing slips between two pulls). */
 const PULL_OVERLAP_MS = 60 * 60_000;
-/** First pull after connecting: the last days (older leads came through the sheets). */
-const FIRST_PULL_DAYS = 3;
+/** First pull after connecting a page: the last days (leads already in through a sheet are not doubled). */
+const FIRST_PULL_DAYS = 7;
 
 const credentials = z.object({ appId: z.string().trim().regex(/^\d+$/, 'App ID أرقام فقط'), appSecret: z.string().trim().min(10), token: z.string().trim().min(20) });
 
@@ -40,10 +40,26 @@ async function setStatus(app: FastifyInstance, source: FacebookSource, patch: Pa
   await app.db.update(sources).set({ config: { ...(fresh?.config as FacebookSource['config']), ...patch }, lastSyncAt: new Date() }).where(eq(sources.id, source.id));
 }
 
-/** Every form's recent leads: the safety net behind the webhook. */
+/** Every connected page's recent leads: the safety net behind the webhook. */
 export async function pullLeads(app: FastifyInstance) {
-  const source = await facebookSource(app.db);
-  if (!source?.active || !source.config.connectedAt) return { created: 0 };
+  let created = 0;
+  let checked = 0;
+  const errors: string[] = [];
+  for (const source of await facebookSources(app.db)) {
+    if (!source.active || !source.config.connectedAt) continue;
+    try {
+      const r = await pullPage(app, source);
+      created += r.created;
+      checked += r.checked;
+    } catch (e) {
+      errors.push(`${source.config.pageName}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  if (errors.length && !created && !checked) throw new Error(errors.join(' · '));
+  return { created, checked };
+}
+
+async function pullPage(app: FastifyInstance, source: FacebookSource) {
   const startedAt = new Date();
   const last = source.config.lastPollAt ? new Date(source.config.lastPollAt).getTime() - PULL_OVERLAP_MS : Date.now() - FIRST_PULL_DAYS * 86400_000;
   try {
@@ -77,19 +93,20 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get('/meta', manage, async (req) => {
-    const s = await facebookSource(app.db);
-    return {
-      webhookUrl: webhookUrl(req),
-      connected: Boolean(s?.active && s.config.connectedAt),
-      appId: s?.config.appId ?? null,
-      pageId: s?.config.pageId ?? null,
-      pageName: s?.config.pageName ?? null,
-      connectedAt: s?.config.connectedAt ?? null,
-      lastPollAt: s?.config.lastPollAt ?? null,
-      lastError: s?.config.lastError ?? null,
-      lastWebhookAt: s?.config.lastWebhookAt ?? null,
-      lastSyncAt: s?.lastSyncAt?.toISOString() ?? null,
-    };
+    const pages = (await facebookSources(app.db))
+      .filter((s) => s.active && s.config.connectedAt)
+      .map((s) => ({
+        id: s.id,
+        appId: s.config.appId,
+        pageId: s.config.pageId,
+        pageName: s.config.pageName,
+        connectedAt: s.config.connectedAt,
+        lastPollAt: s.config.lastPollAt ?? null,
+        lastError: s.config.lastError ?? null,
+        lastWebhookAt: s.config.lastWebhookAt ?? null,
+        lastSyncAt: s.lastSyncAt?.toISOString() ?? null,
+      }));
+    return { webhookUrl: webhookUrl(req), connected: pages.length > 0, pages };
   });
 
   /** Step 1: check the app + token and list the pages it manages. */
@@ -108,50 +125,63 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/meta/pull', manage, async () => pullLeads(app));
 
-  app.delete('/meta', manage, async () => {
-    await disconnectPage(app.db, app.secrets);
+  app.delete('/meta/:id', manage, async (req) => {
+    const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
+    await disconnectPage(app.db, app.secrets, id);
     return { ok: true };
   });
 
   /** Meta checks the address once, when the webhook is registered. */
   app.get('/meta/webhook', async (req, reply) => {
     const q = req.query as Record<string, string | undefined>;
-    const source = await facebookSource(app.db);
-    if (q['hub.mode'] !== 'subscribe' || !source || q['hub.verify_token'] !== source.config.verifyToken) throw new HttpError(403, 'forbidden');
+    const known = (await facebookSources(app.db)).some((s) => s.config.verifyToken === q['hub.verify_token']);
+    if (q['hub.mode'] !== 'subscribe' || !known) throw new HttpError(403, 'forbidden');
     return reply.type('text/plain').send(q['hub.challenge'] ?? '');
   });
 
-  /** A new lead: answered at once (Meta retries slow answers), then fetched and imported. */
+  /** A new lead: answered at once (Meta retries slow answers), then fetched and imported into its page's source. */
   app.post('/meta/webhook', async (req, reply) => {
     // Night pause: the database sleeps; the morning pull brings this lead (Facebook keeps them 90 days).
     if (inNightPause()) return reply.send({ ok: true, deferred: true });
-    const source = await facebookSource(app.db);
     const raw = (req as unknown as { rawBody?: string }).rawBody ?? '';
-    if (!source?.active) throw new HttpError(403, 'not connected');
+    const all = (await facebookSources(app.db)).filter((s) => s.active);
+    if (!all.length) throw new HttpError(403, 'not connected');
     const now = new Date().toISOString();
-    if (!(await validSignature(app.secrets, source, raw, req.headers['x-hub-signature-256'] as string | undefined))) {
-      await setStatus(app, source, {
-        lastWebhookAt: now,
-        lastError: 'وصل إشعار من Facebook لكن توقيعه غير صحيح: الـ App Secret الملصق في المنصة ليس سر تطبيق Touraya CRM. اضغط «تغيير» وأعد الربط بالـ App Secret الصحيح.',
-      }).catch(() => {});
+    // Pages of the same app share its secret; another app's pages have their own.
+    const signature = req.headers['x-hub-signature-256'] as string | undefined;
+    const signed: FacebookSource[] = [];
+    for (const s of all) if (await validSignature(app.secrets, s, raw, signature)) signed.push(s);
+    if (!signed.length) {
+      for (const s of all)
+        await setStatus(app, s, {
+          lastWebhookAt: now,
+          lastError: 'وصل إشعار من Facebook لكن توقيعه غير صحيح: الـ App Secret الملصق في المنصة ليس سر تطبيق Touraya CRM. اضغط «تغيير» وأعد الربط بالـ App Secret الصحيح.',
+        }).catch(() => {});
       throw new HttpError(403, 'bad signature');
     }
-    await setStatus(app, source, { lastWebhookAt: now, lastError: null }).catch(() => {});
-    const body = req.body as { entry?: { changes?: { field?: string; value?: { leadgen_id?: string; page_id?: string } }[] }[] };
-    const leadIds = (body.entry ?? []).flatMap((e) =>
-      (e.changes ?? []).flatMap((c) => (c.field === 'leadgen' && c.value?.leadgen_id && (!c.value.page_id || c.value.page_id === source.config.pageId) ? [c.value.leadgen_id] : [])),
-    );
+    const body = req.body as { entry?: { id?: string; changes?: { field?: string; value?: { leadgen_id?: string; page_id?: string } }[] }[] };
+    const byPage = new Map<FacebookSource, string[]>();
+    for (const e of body.entry ?? []) {
+      for (const c of e.changes ?? []) {
+        if (c.field !== 'leadgen' || !c.value?.leadgen_id) continue;
+        const pageId = c.value.page_id ?? e.id;
+        const source = signed.find((s) => s.config.pageId === pageId);
+        if (source) byPage.set(source, [...(byPage.get(source) ?? []), c.value.leadgen_id]);
+      }
+    }
+    for (const s of byPage.size ? byPage.keys() : signed) await setStatus(app, s, { lastWebhookAt: now, lastError: null }).catch(() => {});
     reply.send({ ok: true });
-    if (!leadIds.length) return reply;
-    const reader = metaReader(app.secrets, source);
-    void (async () => {
-      const rows: Record<string, unknown>[] = [];
-      for (const id of leadIds) rows.push(await reader.lead(id));
-      await importRows(app, source, rows);
-    })().catch(async (e) => {
-      req.log.error({ err: e }, 'facebook lead fetch failed (the next pull will retry)');
-      await setStatus(app, source, { lastError: e instanceof Error ? e.message : String(e) }).catch(() => {});
-    });
+    for (const [source, leadIds] of byPage) {
+      const reader = metaReader(app.secrets, source);
+      void (async () => {
+        const rows: Record<string, unknown>[] = [];
+        for (const id of leadIds) rows.push(await reader.lead(id));
+        await importRows(app, source, rows);
+      })().catch(async (e) => {
+        req.log.error({ err: e }, 'facebook lead fetch failed (the next pull will retry)');
+        await setStatus(app, source, { lastError: e instanceof Error ? e.message : String(e) }).catch(() => {});
+      });
+    }
     return reply;
   });
 

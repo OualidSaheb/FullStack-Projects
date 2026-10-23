@@ -103,9 +103,16 @@ export function leadToRow(lead: MetaLead, formName?: string): Record<string, unk
 
 export type FacebookSource = typeof sources.$inferSelect & { config: MetaConfig };
 
-export async function facebookSource(db: DbOrTx): Promise<FacebookSource | null> {
-  const [s] = await db.select().from(sources).where(and(eq(sources.type, 'facebook'), isNull(sources.deletedAt)));
-  return s && 'appId' in s.config ? (s as FacebookSource) : null;
+/** Every connected Facebook page (one source per page; they share the webhook address). */
+export async function facebookSources(db: DbOrTx): Promise<FacebookSource[]> {
+  const rows = await db.select().from(sources).where(and(eq(sources.type, 'facebook'), isNull(sources.deletedAt))).orderBy(sources.id);
+  return rows.filter((s) => 'appId' in s.config) as FacebookSource[];
+}
+
+/** One page's source (by page id), or the first one. */
+export async function facebookSource(db: DbOrTx, pageId?: string): Promise<FacebookSource | null> {
+  const all = await facebookSources(db);
+  return (pageId ? all.find((s) => s.config.pageId === pageId) : all[0]) ?? null;
 }
 
 /**
@@ -122,14 +129,17 @@ export async function connectPage(
   if (!page) throw new HttpError(400, 'هذا الـ Token لا يملك الصفحة المختارة');
   if (!page.access_token) throw new HttpError(400, 'لم يُرجع Facebook مفتاح الصفحة — تأكد من صلاحية pages_show_list و pages_manage_metadata');
 
-  const existing = await facebookSource(db);
+  // Each page its own source: connecting a page again updates it, another page is added.
+  const all = await facebookSources(db);
+  const existing = all.find((s) => s.config.pageId === page.id) ?? null;
   const config: MetaConfig = {
     appId: input.appId,
     appSecret: secrets.seal(input.appSecret),
     pageId: page.id,
     pageName: page.name,
     pageToken: secrets.seal(page.access_token),
-    verifyToken: existing?.config.verifyToken ?? randomToken(18),
+    // One webhook address for the app: every page shares its verify token.
+    verifyToken: existing?.config.verifyToken ?? all[0]?.config.verifyToken ?? randomToken(18),
     connectedAt: null,
     lastPollAt: existing?.config.lastPollAt ?? null,
     lastError: null,
@@ -154,8 +164,8 @@ export async function connectPage(
   return { ...source!, config: connected } as FacebookSource;
 }
 
-export async function disconnectPage(db: DbOrTx, secrets: SecretBox) {
-  const source = await facebookSource(db);
+export async function disconnectPage(db: DbOrTx, secrets: SecretBox, sourceId: number) {
+  const source = (await facebookSources(db)).find((s) => s.id === sourceId);
   if (!source) return;
   try {
     await graph(`/${source.config.pageId}/subscribed_apps`, { access_token: secrets.open(source.config.pageToken) }, 'DELETE');

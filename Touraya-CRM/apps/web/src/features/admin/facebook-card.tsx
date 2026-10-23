@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Copy, ExternalLink, Facebook, RefreshCw, TriangleAlert, Unplug } from 'lucide-react';
+import { CheckCircle2, Copy, ExternalLink, Facebook, Plus, RefreshCw, TriangleAlert, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { fmtDateTime, timeAgo } from '@/lib/format';
 import { errorMessage, qk } from '@/lib/queries';
 import { Alert, Button, Card, CardHeader, Field, Input, Select } from '@/components/ui';
 
-interface MetaStatus {
-  webhookUrl: string;
-  connected: boolean;
-  appId: string | null;
-  pageName: string | null;
+interface MetaPage {
+  id: number;
+  appId: string;
+  pageId: string;
+  pageName: string;
   connectedAt: string | null;
   lastPollAt: string | null;
   lastError: string | null;
@@ -19,10 +19,16 @@ interface MetaStatus {
   lastWebhookAt: string | null;
 }
 
+interface MetaStatus {
+  webhookUrl: string;
+  connected: boolean;
+  pages: MetaPage[];
+}
+
 /**
- * Facebook Lead Ads connected directly: paste the app and system-user token
- * once, pick the page; new leads arrive within seconds (and a pull every 10
- * minutes catches any missed one). The Drive folder can stay as a backup.
+ * Facebook Lead Ads connected directly, one or several pages: paste the app
+ * and system-user token, pick a page; new leads arrive within seconds (and a
+ * regular pull catches any missed one). The Drive folder can stay as a backup.
  */
 export function FacebookCard() {
   const qc = useQueryClient();
@@ -31,7 +37,7 @@ export function FacebookCard() {
   const [creds, setCreds] = useState({ appId: '', appSecret: '', token: '' });
   const [pages, setPages] = useState<{ id: string; name: string }[] | null>(null);
   const [pageId, setPageId] = useState('');
-  const [busy, setBusy] = useState<'pages' | 'connect' | 'pull' | 'off' | null>(null);
+  const [busy, setBusy] = useState<'pages' | 'connect' | 'pull' | `off-${number}` | null>(null);
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['meta'] });
     qc.invalidateQueries({ queryKey: qk.sources });
@@ -54,7 +60,7 @@ export function FacebookCard() {
   return (
     <Card>
       <CardHeader
-        title="Facebook — ربط مباشر"
+        title={status?.pages.length ? `Facebook — ربط مباشر (${status.pages.length} ${status.pages.length === 1 ? 'صفحة' : 'صفحات'})` : 'Facebook — ربط مباشر'}
         icon={<Facebook className="size-4 text-primary" />}
         action={
           status?.connected && !editing ? (
@@ -64,8 +70,7 @@ export function FacebookCard() {
                 toast.success(r.created ? `وصلت ${r.created} طلبية جديدة` : 'لا توجد طلبيات جديدة');
                 refresh();
               })}>سحب الآن</Button>
-              <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>تغيير</Button>
-              <Button size="sm" variant="ghost" icon={<Unplug className="size-3.5" />} loading={busy === 'off'} onClick={() => confirm('فصل Facebook؟ الطلبيات تبقى تصل من الشيتات إن كانت مربوطة.') && run('off', async () => { await api.delete('/meta'); refresh(); })} aria-label="فصل" />
+              <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setEditing(true)}>إضافة صفحة</Button>
             </div>
           ) : undefined
         }
@@ -73,30 +78,46 @@ export function FacebookCard() {
       <div className="space-y-3 p-4 text-sm">
         {status?.connected && !editing && (
           <>
-            <p className="flex items-center gap-1.5 text-ok">
-              <CheckCircle2 className="size-4" /> متصل بالصفحة <b>{status.pageName}</b>
-              {status.lastSyncAt && <span className="text-muted" title={fmtDateTime(status.lastSyncAt)}>· آخر نشاط {timeAgo(status.lastSyncAt)}</span>}
-            </p>
-            <p className="text-xs text-muted">الطلبيات تصل خلال ثوانٍ، وتُراجع كل الفورمات كل 5 دقائق احتياطاً (كل ساعة إذا أطفأت «المنصة نشيطة دائماً»). كل إجابات الأسئلة متعددة الاختيار تصل كاملة.</p>
-            <ul className="space-y-1 text-xs">
-              <li>
-                آخر إشعار فوري من Facebook:{' '}
-                {status.lastWebhookAt ? <b title={fmtDateTime(status.lastWebhookAt)}>{timeAgo(status.lastWebhookAt)}</b> : <b className="text-warn">لم يصل أي إشعار بعد</b>}
-              </li>
-              <li>آخر مراجعة للفورمات: {status.lastPollAt ? <b title={fmtDateTime(status.lastPollAt)}>{timeAgo(status.lastPollAt)}</b> : '—'}</li>
+            <ul className="divide-y divide-line rounded-lg border border-line">
+              {status.pages.map((page) => (
+                <li key={page.id} className="space-y-1 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="size-4 shrink-0 text-ok" />
+                    <b className="min-w-0 flex-1 truncate">{page.pageName}</b>
+                    {page.lastSyncAt && <span className="text-xs text-muted" title={fmtDateTime(page.lastSyncAt)}>آخر نشاط {timeAgo(page.lastSyncAt)}</span>}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<Unplug className="size-3.5" />}
+                      loading={busy === `off-${page.id}`}
+                      onClick={() => confirm(`فصل صفحة «${page.pageName}»؟ الصفحات الأخرى تبقى مربوطة.`) && run(`off-${page.id}`, async () => { await api.delete(`/meta/${page.id}`); refresh(); })}
+                      aria-label={`فصل ${page.pageName}`}
+                    />
+                  </div>
+                  <p className="text-xs text-muted">
+                    آخر إشعار فوري:{' '}
+                    {page.lastWebhookAt ? <b title={fmtDateTime(page.lastWebhookAt)}>{timeAgo(page.lastWebhookAt)}</b> : <b className="text-warn">لم يصل أي إشعار بعد</b>}
+                    {' · '}آخر مراجعة للفورمات: {page.lastPollAt ? <b title={fmtDateTime(page.lastPollAt)}>{timeAgo(page.lastPollAt)}</b> : '—'}
+                  </p>
+                  {page.lastError && <Alert tone="warn" icon={<TriangleAlert className="mt-0.5 size-4 shrink-0" />}>{page.lastError}</Alert>}
+                </li>
+              ))}
             </ul>
-            {!status.lastWebhookAt && (
+            <p className="text-xs text-muted">الطلبيات تصل خلال ثوانٍ، وتُراجع كل الفورمات كل 5 دقائق احتياطاً (كل ساعة إذا أطفأت «المنصة نشيطة دائماً»). كل إجابات الأسئلة متعددة الاختيار تصل كاملة.</p>
+            {status.pages.some((p) => !p.lastWebhookAt) && (
               <p className="text-xs text-muted">
-                إذا لم يصل أي إشعار بعد طلبية تجريبية: تأكد أن التطبيق في وضع <b>Live</b> في Meta for Developers. الطلبيات تصل على كل حال عبر «سحب الآن» والمراجعة الدورية (كل 5 دقائق والمنصة نشيطة دائماً، وإلا كل ساعة).
+                إذا لم يصل أي إشعار بعد طلبية تجريبية: تأكد أن التطبيق في وضع <b>Live</b> في Meta for Developers، وأن الصفحة مسموح لها في Leads Access. الطلبيات تصل على كل حال عبر «سحب الآن» والمراجعة الدورية.
               </p>
             )}
           </>
         )}
-        {status?.lastError && (
-          <Alert tone="warn" icon={<TriangleAlert className="mt-0.5 size-4 shrink-0" />}>{status.lastError}</Alert>
-        )}
         {showForm && (
           <div className="space-y-3">
+            {editing && (
+              <p className="font-medium">
+                إضافة صفحة أخرى: الصق نفس App ID و App Secret و Token الـ System User (بعد إضافة الصفحة له في Business Settings ← System users ← Assign assets، والسماح لها في Leads Access)، ثم اختر الصفحة. الصفحات المربوطة تبقى كما هي.
+              </p>
+            )}
             <p className="text-muted">
               تحتاج تطبيقاً في Meta for Developers و Token من System User (الخطوات في الدليل). عنوان سياسة الخصوصية للتطبيق:{' '}
               <button className="ltr inline-flex items-center gap-1 text-primary hover:underline" onClick={() => navigator.clipboard.writeText(privacyUrl).then(() => toast.success('تم النسخ'))}>
@@ -114,12 +135,12 @@ export function FacebookCard() {
                 const list = await api.post<{ id: string; name: string }[]>('/meta/pages', creds);
                 if (!list.length) throw new Error('هذا الـ Token لا يملك أي صفحة — أضف الصفحة للـ System User');
                 setPages(list);
-                setPageId(list[0]!.id);
+                setPageId((list.find((p) => !status?.pages.some((c) => c.pageId === p.id)) ?? list[0]!).id);
               })}>التحقق وعرض الصفحات</Button>
             ) : (
               <div className="flex flex-wrap items-end gap-2">
                 <Field label="الصفحة" className="min-w-56 flex-1">
-                  {(id) => <Select id={id} value={pageId} onChange={(e) => setPageId(e.target.value)}>{pages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>}
+                  {(id) => <Select id={id} value={pageId} onChange={(e) => setPageId(e.target.value)}>{pages.map((p) => <option key={p.id} value={p.id}>{p.name}{status?.pages.some((c) => c.pageId === p.id) ? ' (مربوطة — تحديث)' : ''}</option>)}</Select>}
                 </Field>
                 <Button variant="primary" loading={busy === 'connect'} onClick={() => run('connect', async () => {
                   const r = await api.post<{ pageName: string; created: number }>('/meta/connect', { ...creds, pageId });
