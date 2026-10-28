@@ -111,6 +111,18 @@ export const returnReceiveSchema = z.object({
 });
 export type ReturnReceive = z.infer<typeof returnReceiveSchema>;
 
+/**
+ * A returned order sent to the same customer again (she was out, wanted
+ * another size…): received → delivered; to send again from the platform →
+ * back to confirmed; sent by hand → sent, with the new tracking number.
+ */
+export const resendSchema = z.object({
+  mode: z.enum(['delivered', 'reship', 'sent']),
+  tracking: z.string().trim().max(60).optional(),
+  note: z.string().trim().max(500).optional(),
+});
+export type Resend = z.infer<typeof resendSchema>;
+
 /** New order for the same customer from an existing one (refused parcel re-sent, re-order). */
 export const reorderSchema = z.object({ status: z.enum(['new', 'confirmed']).default('confirmed') });
 

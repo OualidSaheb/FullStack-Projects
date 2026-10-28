@@ -1,9 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { CARRIER_FINAL_STATUSES, exportRequestSchema, IN_TRANSIT_STATUSES, type OrderStatus } from '@touraya/shared';
 import { parseReference, type AppContext } from '../../context';
-import { carriers, exportBatches, orders } from '../../db/schema';
+import { carriers, exportBatches, orderEvents, orders } from '../../db/schema';
 import { notFound } from '../../lib/errors';
 import { ADAPTERS } from '../carriers/registry';
 import { getCarrier, loadCarrierRow } from '../carriers/service';
@@ -100,6 +100,15 @@ export async function applyCarrierUpdates(ctx: AppContext, carrier: LoadedCarrie
     await ctx.db.transaction(async (tx) => {
       const matches = await tx.select().from(orders).where(or(...conds));
       for (const order of matches) {
+        // News of a parcel set aside when the order was sent again (it came back): not this order's any more.
+        if (u.tracking && u.tracking !== order.carrierTracking) {
+          const [setAside] = await tx
+            .select({ id: orderEvents.id })
+            .from(orderEvents)
+            .where(and(eq(orderEvents.orderId, order.id), eq(orderEvents.type, 'carrier_update'), sql`${orderEvents.data}->>'event' = 'resend'`, sql`${orderEvents.data}->>'oldTracking' = ${u.tracking}`))
+            .limit(1);
+          if (setAside) continue;
+        }
         // Payment news (money collected / paid out): history only, the parcel's status stays.
         if (!u.carrierStatus) {
           if (u.payment) {

@@ -32,6 +32,7 @@ export async function shippingStats(ctx: AppContext, filter: { from?: string; to
   const day = sql<string>`to_char((${sentAt} at time zone 'UTC') + interval '1 hour', 'YYYY-MM-DD')`;
   const inScope = sql`${orderEvents.orderId} in (select ${orders.id} from ${orders} where ${where})`;
 
+  const resentIds = sql`select ${orderEvents.orderId} from ${orderEvents} where ${orderEvents.type} = 'carrier_update' and ${orderEvents.data}->>'event' = 'resend'`;
   const [totals, byStatus, byWilaya, byOffer, byAgent, byDeliveryType, daily, failReasons, payments, speed] = await Promise.all([
     ctx.db
       .select({
@@ -43,6 +44,8 @@ export async function shippingStats(ctx: AppContext, filter: { from?: string; to
         revenueDelivered: sumWhere(sql`${orders.status} = 'delivered'`),
         revenuePending: sumWhere(inArray(orders.status, IN_PROGRESS)),
         revenueReturned: sumWhere(inArray(orders.status, RETURNED)),
+        resent: countWhere(sql`${orders.id} in (${resentIds})`),
+        resentDelivered: countWhere(sql`${orders.id} in (${resentIds}) and ${orders.status} = 'delivered'`),
       })
       .from(orders)
       .where(where),

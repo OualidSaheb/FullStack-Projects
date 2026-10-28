@@ -120,6 +120,12 @@ export function ShippingStats({ from }: { from?: string }) {
         />
       </div>
 
+      {t.resent > 0 && (
+        <p className="text-sm text-muted">
+          <b className="text-fg">{fmtNumber(t.resent)}</b> طلبية رجعت ثم أُعيد إرسالها لنفس الزبون، منها <b className="text-ok">{fmtNumber(t.resentDelivered)}</b> سُلّمت (محسوبة في المسلّمة).
+        </p>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <CardHeader title="الطرود حسب يوم التأكيد" />

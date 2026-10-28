@@ -9,6 +9,7 @@ import {
   orderListQuerySchema,
   orderUpdateSchema,
   reorderSchema,
+  resendSchema,
   returnReceiveSchema,
   statusChangeSchema,
 } from '@touraya/shared';
@@ -17,7 +18,7 @@ import { assertCan } from '../../lib/auth';
 import { conflict } from '../../lib/errors';
 import { countByStatus, idsForFilter, listOrders } from './query';
 import { claimNextOrder } from './queue';
-import { addComment, bulkAction, changeStatus, getOrderDetail, getTimeline, receiveReturn, redraftItems, reorder, updateOrder } from './service';
+import { addComment, bulkAction, changeStatus, getOrderDetail, getTimeline, receiveReturn, redraftItems, reorder, resendOrder, updateOrder } from './service';
 
 const idParams = z.object({ id: z.string().uuid() });
 
@@ -57,6 +58,11 @@ export const orderRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/orders/:id/return-received', { preHandler: app.requirePermission('returns.manage') }, async (req) =>
     receiveReturn(app, idParams.parse(req.params).id, returnReceiveSchema.parse(req.body ?? {}), req.user),
+  );
+
+  /** A returned order sent again to the same customer (delivered / to send again / sent by hand). */
+  app.post('/orders/:id/resend', { preHandler: app.requirePermission('orders.status') }, async (req) =>
+    resendOrder(app, idParams.parse(req.params).id, resendSchema.parse(req.body ?? {}), req.user),
   );
 
   app.post('/orders/:id/reorder', view, async (req) => reorder(app, idParams.parse(req.params).id, reorderSchema.parse(req.body ?? {}).status, req.user));

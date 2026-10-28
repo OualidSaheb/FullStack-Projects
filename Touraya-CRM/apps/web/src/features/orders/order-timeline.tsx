@@ -21,6 +21,8 @@ const CARRIER_PAYMENT: Record<string, string> = {
   paid: 'تم دفع المبلغ لك',
 };
 
+const RESEND_LABELS: Record<string, string> = { delivered: 'تسلّمتها', reship: 'سترسل من جديد من المنصة', sent: 'أُرسلت يدوياً' };
+
 const show = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : String(v));
 
 function EventLine({ e, userName }: { e: OrderEventDTO; userName: (id: unknown) => string }) {
@@ -78,7 +80,13 @@ function EventLine({ e, userName }: { e: OrderEventDTO; userName: (id: unknown) 
       break;
     case 'carrier_update':
       icon = <Truck className="size-3.5" />;
-      body = d.payment
+      body = d.event === 'resend'
+        ? <>أُعيد إرسالها لنفس الزبون: <b>{RESEND_LABELS[d.mode as string] ?? show(d.mode)}</b>{d.oldTracking ? <> — الطرد الذي رجع <span className="ltr">{show(d.oldTracking)}</span></> : null}{d.tracking ? <> · الجديد <span className="ltr">{show(d.tracking)}</span></> : null}</>
+        : d.event === 'link'
+        ? <>رُبطت بطرد {show(d.carrier)} <span className="ltr">{show(d.tracking)}</span>: <b>{show(d.carrierStatus)}</b></>
+        : d.event === 'unlink'
+        ? <>أُلغي ربطها بالطرد <span className="ltr">{show(d.tracking)}</span></>
+        : d.payment
         ? <>الدفع عند {show(d.carrier)}: <b>{CARRIER_PAYMENT[d.payment as string] ?? show(d.payment)}</b></>
         : <>تحديث من شركة التوصيل: <b>{show(d.carrierStatus)}</b>{d.reason ? <> — {show(d.reason)}</> : null}</>;
       break;

@@ -859,3 +859,51 @@ describe('night pause', () => {
     expect((await ingest('Sheet1', [lead('night-1', { full_name: 'Night Client' })])).json()).toMatchObject({ created: 1 });
   });
 });
+
+describe('returned, then sent again to the same customer', () => {
+  const hook = (reference: string, tracking: string, status: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/webhooks/yalidine',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({ type: 'parcel_status_updated', events: [{ data: { order_id: reference, tracking, status } }] }),
+    });
+  const returnedOrder = async (id: string, tracking: string) => {
+    await ingest('Sheet1', [lead(id, { full_name: `Resend ${id}`, phone_number: `p:+21366100${id}`, 'رقمك_الخاص_للتواصل_معاك': `066100${id}` })]);
+    const order = await find(`Resend ${id}`);
+    await api('POST', `/orders/${order.id}/status`, { status: 'confirmed' });
+    await hook(order.reference, tracking, 'Retourné au vendeur');
+    expect((await api('GET', `/orders/${order.id}`)).json()).toMatchObject({ status: 'returned', carrierTracking: tracking });
+    return order as { id: string; reference: string };
+  };
+
+  it('delivered after all: counted as delivered, the old parcel\'s late news ignored', async () => {
+    const order = await returnedOrder('9101', 'yal-R1');
+    const before = (await api('GET', '/stats/shipping')).json().totals;
+    const res = (await api('POST', `/orders/${order.id}/resend`, { mode: 'delivered', note: 'كانت خارج البيت' })).json();
+    expect(res).toMatchObject({ status: 'delivered', carrierTracking: null });
+    await hook(order.reference, 'yal-R1', 'Retourné au vendeur'); // late news of the parcel that came back
+    expect((await api('GET', `/orders/${order.id}`)).json().status).toBe('delivered');
+    const after = (await api('GET', '/stats/shipping')).json().totals;
+    expect(after.delivered).toBe(before.delivered + 1);
+    expect(after.returned).toBe(before.returned - 1);
+    expect(after).toMatchObject({ resent: before.resent + 1, resentDelivered: before.resentDelivered + 1 });
+  });
+
+  it('sent again from the platform: back to confirmed (pieces back in stock), the new parcel is followed', async () => {
+    const order = await returnedOrder('9102', 'yal-R2');
+    const moves = (await api('GET', '/inventory/movements')).json().length;
+    expect((await api('POST', `/orders/${order.id}/resend`, { mode: 'reship' })).json()).toMatchObject({ status: 'confirmed', carrierTracking: null });
+    expect((await api('GET', '/inventory/movements')).json().length).toBeGreaterThan(moves); // the parcel's pieces come back
+    await hook(order.reference, 'yal-R2', 'Retourné au vendeur'); // the old parcel
+    expect((await api('GET', `/orders/${order.id}`)).json().status).toBe('confirmed');
+    await hook(order.reference, 'yal-R3', 'Livré'); // the new parcel
+    expect((await api('GET', `/orders/${order.id}`)).json()).toMatchObject({ status: 'delivered', carrierTracking: 'yal-R3' });
+  });
+
+  it('sent again by hand with its new tracking number; only returned orders can be sent again', async () => {
+    const order = await returnedOrder('9103', 'yal-R4');
+    expect((await api('POST', `/orders/${order.id}/resend`, { mode: 'sent', tracking: 'yal-R5' })).json()).toMatchObject({ status: 'sent_to_carrier', carrierTracking: 'yal-R5' });
+    expect((await api('POST', `/orders/${order.id}/resend`, { mode: 'delivered' })).statusCode).toBe(400);
+  });
+});

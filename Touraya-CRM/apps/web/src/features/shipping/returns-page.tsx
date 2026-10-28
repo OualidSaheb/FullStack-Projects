@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { PackageCheck, RotateCcw, Search, Undo2 } from 'lucide-react';
 import { IN_TRANSIT_STATUSES, RETURN_CONDITIONS, type OrderListItem, type OrderStatus, type ReturnConditionKey } from '@touraya/shared';
 import { fmtDA, timeAgo } from '@/lib/format';
-import { useChangeStatus, useOrder, useOrders, useReceiveReturn, useReorder } from '@/lib/queries';
+import { useChangeStatus, useOrder, useOrders, useReceiveReturn } from '@/lib/queries';
 import { cn } from '@/lib/cn';
 import { wilayaLabel } from '@/components/geo-select';
 import { StatusBadge } from '@/components/status';
 import { Alert, Button, Card, CardHeader, EmptyState, Field, Input, Modal, PageHeader, PageLoader } from '@/components/ui';
 import { OrderDrawer } from '../orders/order-drawer';
+import { ResendModal } from '../orders/parts/resend-modal';
 
 /** Parcels that can still be registered as returned by hand. */
 const SHIPPED: OrderStatus[] = ['ready_for_carrier', ...IN_TRANSIT_STATUSES, 'delivered'];
@@ -135,7 +136,7 @@ function ManualReturn() {
 }
 
 function ReturnRow({ order, onOpen, onReceive }: { order: OrderListItem; onOpen: () => void; onReceive: () => void }) {
-  const reorder = useReorder(order.id);
+  const [resending, setResending] = useState(false);
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
       <button className="min-w-0 text-start" onClick={onOpen}>
@@ -146,10 +147,11 @@ function ReturnRow({ order, onOpen, onReceive }: { order: OrderListItem; onOpen:
       </button>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="success" icon={<PackageCheck className="size-4" />} onClick={onReceive}>استلام الطرد</Button>
-        <Button size="sm" variant="ghost" icon={<RotateCcw className="size-4" />} loading={reorder.isPending} onClick={() => reorder.mutate('confirmed')} title="الزبون يريد الطلبية مرة أخرى: طلبية جديدة مؤكدة ومرتبطة">
-          إعادة الإرسال للزبون
+        <Button size="sm" variant="secondary" icon={<RotateCcw className="size-4" />} onClick={() => setResending(true)} title="الزبون يريدها: تسلّمتها، أو سأرسلها من جديد">
+          أُعيد إرسالها للزبون
         </Button>
       </div>
+      {resending && <ResendModal order={order} onClose={() => setResending(false)} />}
     </li>
   );
 }

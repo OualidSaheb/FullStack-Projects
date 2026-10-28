@@ -327,6 +327,9 @@ export interface ShippingStatsDTO {
     revenueReturned: number;
     /** Average days from confirmation to delivery (parcels followed live, not linked afterwards). */
     avgDeliveryDays: number | null;
+    /** Returned parcels sent again to the same customer, and how many of them were delivered. */
+    resent: number;
+    resentDelivered: number;
   };
   byStatus: { status: OrderStatus; count: number }[];
   payments: { status: string; count: number; amount: number }[];

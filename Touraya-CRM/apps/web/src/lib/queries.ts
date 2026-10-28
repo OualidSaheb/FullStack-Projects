@@ -17,6 +17,7 @@ import type {
   Paginated,
   Permission,
   ProductDTO,
+  Resend,
   ReturnReceive,
   Role,
   Settings,
@@ -198,6 +199,7 @@ export const useAddProductOptions = () => {
 };
 export const useAddComment = (id: string) => useOrderMutation((body: string) => api.post(`/orders/${id}/comments`, { body }));
 export const useBulkAction = () => useOrderMutation((v: BulkAction) => api.post<{ affected: number }>('/orders/bulk', v));
+export const useResend = (id: string) => useOrderMutation((v: Resend) => api.post<OrderDetail>(`/orders/${id}/resend`, v), 'تم التحديث — لم تعد في المرتجعات');
 export const useReceiveReturn = (id: string) => useOrderMutation((v: ReturnReceive) => api.post<OrderDetail>(`/orders/${id}/return-received`, v), 'تم تسجيل المرتجع');
 export const useDeleteByFilter = () =>
   useOrderMutation((v: { filter: OrderFilter; confirmCount: number }) => api.post<{ affected: number }>('/orders/delete-by-filter', v));

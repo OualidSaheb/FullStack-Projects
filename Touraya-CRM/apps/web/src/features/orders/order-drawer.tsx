@@ -9,6 +9,7 @@ import { Badge, Button, Drawer, IconButton, PageLoader } from '@/components/ui';
 import { OrderPanel } from './order-panel';
 import { OutcomeBar } from './parts/outcome';
 import { ExportReviewModal } from '../shipping/export-review-modal';
+import { ResendModal } from './parts/resend-modal';
 
 export function OrderDrawer({ orderId, onClose, onOpenOrder }: { orderId: string | null; onClose: () => void; onOpenOrder?: (id: string) => void }) {
   const { data: order, isLoading } = useOrder(orderId);
@@ -17,6 +18,8 @@ export function OrderDrawer({ orderId, onClose, onOpenOrder }: { orderId: string
   const reorder = useReorder(orderId ?? '');
   const canReorder = order && can('orders.status') && ['cancelled', 'delivered', 'returned', 'return_received'].includes(order.status);
   const [sending, setSending] = useState(false);
+  const [resending, setResending] = useState(false);
+  const canResend = order && !order.deletedAt && ['returned', 'return_received'].includes(order.status) && can('orders.status');
   const canSend = order && !order.deletedAt && order.status === 'confirmed' && can('shipping.send');
 
   return (
@@ -69,6 +72,11 @@ export function OrderDrawer({ orderId, onClose, onOpenOrder }: { orderId: string
                 إرسال لشركة التوصيل
               </Button>
             )}
+            {canResend && (
+              <Button variant="secondary" className="mt-2 w-full sm:w-auto" icon={<RotateCcw className="size-4" />} onClick={() => setResending(true)}>
+                أُعيد إرسالها لنفس الزبون
+              </Button>
+            )}
           </header>
           <div className="flex-1 overflow-y-auto p-4 scroll-thin sm:p-5">
             <OrderPanel order={order} onOpenOrder={onOpenOrder} />
@@ -76,6 +84,7 @@ export function OrderDrawer({ orderId, onClose, onOpenOrder }: { orderId: string
         </>
       )}
       {sending && order && <ExportReviewModal ids={[order.id]} onClose={() => setSending(false)} />}
+      {resending && order && <ResendModal order={order} onClose={() => setResending(false)} />}
     </Drawer>
   );
 }

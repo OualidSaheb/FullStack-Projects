@@ -10,12 +10,13 @@ import {
   type OrderDetail,
   type OrderStatus,
   type OrderUpdate,
+  type Resend,
   type ReturnReceive,
   type StatusChange,
 } from '@touraya/shared';
 import { formatReference, parseReference, type AppContext } from '../../context';
 import type { Db, DbOrTx } from '../../db/client';
-import { carriers, customers, offers, orderComments, orderEvents, orders, purgedLeads, users, variants } from '../../db/schema';
+import { carriers, customers, offers, orderComments, orderEvents, orderItems, orders, purgedLeads, users, variants } from '../../db/schema';
 import { assertCan, type SessionUser } from '../../lib/auth';
 import type { DomainEvents } from '../../lib/events';
 import { badRequest, forbidden, notFound } from '../../lib/errors';
@@ -161,6 +162,35 @@ export async function changeStatus(ctx: AppContext, id: string, input: StatusCha
  * off as damaged, or never came back (kept / lost). Optionally the pieces were
  * re-sent to another order, which is then linked to this one.
  */
+const RESEND_TO: Record<Resend['mode'], OrderStatus> = { delivered: 'delivered', reship: 'confirmed', sent: 'sent_to_carrier' };
+
+/**
+ * The same returned order, sent again to the same customer: it leaves the
+ * returns and counts where it really ended (delivered, or on its way again).
+ * The old parcel is set aside: its late carrier news no longer touch the order.
+ * Stock follows: pieces checked back in go out again; a parcel still on its way
+ * back stays out; sent again from the platform, the stock moves when it ships.
+ */
+export async function resendOrder(ctx: AppContext, id: string, input: Resend, user: SessionUser) {
+  const event = await ctx.db.transaction(async (tx) => {
+    const order = await loadOrder(tx, id);
+    if (order.status !== 'returned' && order.status !== 'return_received') throw badRequest('الطلبية ليست مرتجعة');
+    const oldTracking = order.carrierTracking;
+    // Pieces checked in as returned leave again: their check-in no longer holds.
+    if (order.status === 'return_received') await tx.update(orderItems).set({ returnCondition: null }).where(eq(orderItems.orderId, id));
+    const newTracking = input.mode === 'sent' && input.tracking ? input.tracking : null;
+    const label = input.mode === 'delivered' ? 'سُلّمت بعد إعادة الإرسال' : input.mode === 'sent' ? 'أُعيد إرسالها يدوياً' : null;
+    await tx.update(orders).set({ carrierTracking: newTracking, carrierStatus: label }).where(eq(orders.id, id));
+    Object.assign(order, { carrierTracking: newTracking, carrierStatus: label });
+    await logEvents(tx, { orderId: id, type: 'carrier_update', actorId: user.id, data: { event: 'resend', mode: input.mode, oldTracking, tracking: newTracking } });
+    const e = await transitionStatus(await transitionContext(ctx, tx, user), order, RESEND_TO[input.mode], { meta: { via: 'resend' } });
+    if (input.note) await insertComment(tx, id, input.note, user);
+    return e;
+  });
+  emitStatusEvents(ctx, [event]);
+  return getOrderDetail(ctx, id);
+}
+
 export async function receiveReturn(ctx: AppContext, id: string, input: ReturnReceive, user: SessionUser) {
   const event = await ctx.db.transaction(async (tx) => {
     const order = await loadOrder(tx, id);
