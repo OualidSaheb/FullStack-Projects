@@ -10,6 +10,8 @@ import {
   type OrderDetail,
   type OrderStatus,
   type OrderUpdate,
+  resolvePhone,
+  type ManualOrder,
   type Resend,
   type ReturnReceive,
   type StatusChange,
@@ -22,7 +24,7 @@ import type { DomainEvents } from '../../lib/events';
 import { badRequest, forbidden, notFound } from '../../lib/errors';
 import { opt, productTiers, reservedByVariant } from '../catalog/service';
 import { deliveryFee } from '../carriers/service';
-import { toHistory, upsertCustomer } from '../customers/service';
+import { findRecentOpenOrder, toHistory, upsertCustomer } from '../customers/service';
 import { getSettings } from '../settings/service';
 import { logEvents, type EventInput } from './events';
 import { draftOfferItems, itemsLabel, loadItems, replaceItems } from './items';
@@ -162,6 +164,59 @@ export async function changeStatus(ctx: AppContext, id: string, input: StatusCha
  * off as damaged, or never came back (kept / lost). Optionally the pieces were
  * re-sent to another order, which is then linked to this one.
  */
+/**
+ * An order typed by hand (website, Instagram, a call…): same checks as the
+ * others (phone, repeat customer), pieces drafted from the offer and the
+ * size/colours asked; the agent who types it owns it.
+ */
+export async function createManualOrder(ctx: AppContext, input: ManualOrder, user: SessionUser) {
+  if (input.confirmed) assertStatusAllowed(user, 'confirmed');
+  const id = await ctx.db.transaction(async (tx) => {
+    const phone = resolvePhone(input.phone, null);
+    const alt = input.phoneAlt ? normalizePhone(input.phoneAlt) : null;
+    const [offer] = input.offerId ? await tx.select().from(offers).where(eq(offers.id, input.offerId)) : [];
+    if (input.offerId && !offer) throw badRequest('العرض غير موجود');
+    const settings = await getSettings(tx);
+    const customerId = await upsertCustomer(tx, phone.phone, input.customerName);
+    const duplicateOfId =
+      customerId && settings.duplicateWindowDays > 0 ? await findRecentOpenOrder(tx, customerId, new Date(Date.now() - settings.duplicateWindowDays * 86400_000)) : null;
+    const wilaya = getWilaya(input.wilayaCode ?? null);
+    const [created] = await tx
+      .insert(orders)
+      .values({
+        customerId,
+        customerName: input.customerName,
+        phone: phone.phone,
+        phoneCustomer: phone.customer.raw || null,
+        phoneAlt: alt?.value || null,
+        phoneIssue: phone.issue,
+        duplicateOfId,
+        wilayaCode: wilaya?.code ?? null,
+        communeName: wilaya && input.communeName ? input.communeName : null,
+        address: input.address || null,
+        deliveryType: input.deliveryType,
+        offerId: offer?.id ?? null,
+        offerRaw: offer?.name ?? null,
+        price: input.price ?? offer?.price ?? 0,
+        size: input.size || null,
+        colors: input.colors || null,
+        assignedToId: user.role === 'agent' ? user.id : null,
+        raw: { _manual: input.origin, _by: user.name },
+      })
+      .returning();
+    await replaceItems(tx, created!.id, await draftOfferItems(tx, offer?.id ?? null, { size: input.size || null, colors: input.colors || null }));
+    await logEvents(tx, [
+      { orderId: created!.id, type: 'created', actorId: user.id, data: { source: `يدوي — ${input.origin}` } },
+      ...(phone.issue ? [{ orderId: created!.id, type: 'phone_issue' as const, data: { issue: phone.issue } }] : []),
+    ]);
+    if (input.note) await insertComment(tx, created!.id, input.note, user);
+    if (input.confirmed) await transitionStatus(await transitionContext(ctx, tx, user), created!, 'confirmed');
+    return created!.id;
+  });
+  ctx.events.emit('order.created', { orderId: id, sourceId: null });
+  return getOrderDetail(ctx, id);
+}
+
 const RESEND_TO: Record<Resend['mode'], OrderStatus> = { delivered: 'delivered', reship: 'confirmed', sent: 'sent_to_carrier' };
 
 /**

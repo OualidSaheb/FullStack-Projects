@@ -37,7 +37,7 @@ export function OrderDrawer({ orderId, onClose, onOpenOrder }: { orderId: string
                   {order.deletedAt && <Badge tone="danger">محذوفة</Badge>}
                 </div>
                 <p className="mt-1 text-xs text-muted">
-                  {fmtDateTime(order.createdAt)} · {order.sourceName ?? 'يدوي'}
+                  {fmtDateTime(order.createdAt)} · {order.sourceName ?? (typeof order.raw?._manual === 'string' ? `يدوي — ${order.raw._manual}` : 'يدوي')}
                   {order.assignedToName && <> · {order.assignedToName}</>}
                   {order.nextCallAt && <> · الاتصال القادم {fmtDateTime(order.nextCallAt)}</>}
                 </p>

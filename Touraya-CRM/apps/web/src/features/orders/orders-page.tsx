@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import type { RowSelectionState } from '@tanstack/react-table';
-import { Inbox, PhoneForwarded, RefreshCw, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Inbox, PhoneForwarded, Plus, RefreshCw, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
@@ -11,6 +11,7 @@ import { ExportReviewModal } from '../shipping/export-review-modal';
 import { BulkBar } from './bulk-bar';
 import { FilterBar } from './filter-bar';
 import { OrderCards } from './order-cards';
+import { ManualOrderModal } from './manual-order-modal';
 import { OrderDrawer } from './order-drawer';
 import { OrdersTable } from './orders-table';
 import { Pagination } from './pagination';
@@ -42,6 +43,7 @@ export function OrdersPage({ trash = false }: { trash?: boolean }) {
   const [exportIds, setExportIds] = useState<string[] | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [manual, setManual] = useState(false);
   const deleteByFilter = useDeleteByFilter();
   const selectedIds = Object.keys(selection).filter((k) => selection[k]);
 
@@ -59,6 +61,11 @@ export function OrdersPage({ trash = false }: { trash?: boolean }) {
             <Button className="md:hidden" aria-label="الفلاتر" icon={<SlidersHorizontal className="size-4" />} onClick={() => setShowFilters(!showFilters)}>
               {filters.activeFilterCount > 0 && <span className="ltr">{filters.activeFilterCount}</span>}
             </Button>
+            {!trash && can('orders.status') && (
+              <Button icon={<Plus className="size-4" />} onClick={() => setManual(true)}>
+                طلبية يدوية
+              </Button>
+            )}
             {!trash && can('orders.status') && (
               <Link to="/work" className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-medium text-white shadow-sm hover:brightness-110 dark:text-ink">
                 <PhoneForwarded className="size-4" />
@@ -114,6 +121,7 @@ export function OrdersPage({ trash = false }: { trash?: boolean }) {
       </Card>
 
       <OrderDrawer orderId={openOrderId} onClose={() => openOrder(null)} onOpenOrder={openOrder} />
+      {manual && <ManualOrderModal onClose={() => setManual(false)} onCreated={openOrder} />}
       {exportIds && <ExportReviewModal ids={exportIds} onClose={() => { setExportIds(null); setSelection({}); }} onOpenOrder={openOrder} />}
 
       <Modal

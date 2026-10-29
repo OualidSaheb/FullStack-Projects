@@ -907,3 +907,35 @@ describe('returned, then sent again to the same customer', () => {
     expect((await api('POST', `/orders/${order.id}/resend`, { mode: 'delivered' })).statusCode).toBe(400);
   });
 });
+
+describe('orders typed by hand', () => {
+  it('creates the order with its pieces from the offer, flags a repeat customer, confirms on request', async () => {
+    const offer = (await api('GET', '/offers')).json().find((o: { name: string }) => o.name === 'pants 2pcs 3500');
+    const res = await api('POST', '/orders', {
+      customerName: 'Site Client',
+      phone: '0770 12 34 56',
+      wilayaCode: 16,
+      communeName: 'Bab Ezzouar',
+      offerId: offer.id,
+      size: '42',
+      colors: 'أسود رمادي',
+      origin: 'الموقع',
+      note: 'طلبت من الموقع',
+      confirmed: true,
+    });
+    expect(res.statusCode).toBe(200);
+    const order = res.json();
+    expect(order).toMatchObject({ customerName: 'Site Client', phone: '0770123456', wilayaCode: 16, price: offer.price, status: 'confirmed', sourceName: null, offerName: 'pants 2pcs 3500' });
+    expect(order.items).toHaveLength(2);
+    expect(order.items.map((i: { color: string }) => i.color)).toEqual(['أسود', 'رمادي']);
+    const timeline = (await api('GET', `/orders/${order.id}/timeline`)).json();
+    expect(JSON.stringify(timeline)).toContain('يدوي — الموقع');
+
+    // Same customer again: flagged like any repeat order.
+    const again = (await api('POST', '/orders', { customerName: 'Site Client', phone: '0770123456', origin: 'Instagram' })).json();
+    expect(again.duplicateOf?.reference).toBe(order.reference);
+    expect(again.status).toBe('new');
+
+    expect((await api('POST', '/orders', { customerName: '', phone: '' })).statusCode).toBe(400);
+  });
+});

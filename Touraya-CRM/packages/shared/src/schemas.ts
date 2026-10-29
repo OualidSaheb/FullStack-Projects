@@ -123,6 +123,29 @@ export const resendSchema = z.object({
 });
 export type Resend = z.infer<typeof resendSchema>;
 
+/** Where a hand-typed order came from (shown in the order and the statistics' sources). */
+export const MANUAL_ORIGINS = ['الموقع', 'Instagram', 'TikTok', 'WhatsApp', 'رسائل Facebook', 'هاتف', 'المحل', 'أخرى'] as const;
+
+/** An order typed by hand (website, Instagram, a phone call…). */
+export const manualOrderSchema = z.object({
+  customerName: z.string().trim().min(1, 'اسم الزبون مطلوب').max(120),
+  phone: z.string().trim().min(6, 'رقم الهاتف مطلوب').max(40),
+  phoneAlt: z.string().trim().max(40).optional(),
+  wilayaCode: z.number().int().min(1).max(58).nullable().optional(),
+  communeName: z.string().trim().max(120).nullable().optional(),
+  address: z.string().trim().max(300).optional(),
+  deliveryType: z.enum(['home', 'stopdesk']).default('home'),
+  offerId: z.number().int().positive().nullable().optional(),
+  /** Defaults to the offer's price. */
+  price: z.number().int().min(0).optional(),
+  size: z.string().trim().max(60).optional(),
+  colors: z.string().trim().max(200).optional(),
+  origin: z.string().trim().max(40).default('الموقع'),
+  note: z.string().trim().max(1000).optional(),
+  confirmed: z.boolean().default(false),
+});
+export type ManualOrder = z.infer<typeof manualOrderSchema>;
+
 /** New order for the same customer from an existing one (refused parcel re-sent, re-order). */
 export const reorderSchema = z.object({ status: z.enum(['new', 'confirmed']).default('confirmed') });
 
