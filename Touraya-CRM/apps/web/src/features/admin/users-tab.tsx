@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Pencil, Plus } from 'lucide-react';
-import { ROLE_LABELS, ROLE_PERMISSIONS, ROLES, type Role, type UserDTO } from '@touraya/shared';
+import { GRANTABLE_PERMISSIONS, ROLE_LABELS, ROLE_PERMISSIONS, ROLES, type Permission, type Role, type UserDTO } from '@touraya/shared';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/cn';
 import { fmtDateTime } from '@/lib/format';
 import { qk, useAdminMutation, useUsers } from '@/lib/queries';
-import { Badge, Button, Card, ConfirmDelete, Field, Input, Modal, PageLoader, Select, Switch } from '@/components/ui';
+import { Badge, Button, Card, Checkbox, ConfirmDelete, Field, Input, Modal, PageLoader, Select, Switch } from '@/components/ui';
 
 const ROLE_HINTS: Record<Role, string> = {
   admin: 'كل شيء',
@@ -14,7 +15,8 @@ const ROLE_HINTS: Record<Role, string> = {
 };
 
 function UserForm({ user, onClose }: { user: UserDTO | null; onClose: () => void }) {
-  const [form, setForm] = useState({ name: user?.name ?? '', email: user?.email ?? '', role: user?.role ?? ('agent' as Role), active: user?.active ?? true, password: '' });
+  const [form, setForm] = useState({ name: user?.name ?? '', email: user?.email ?? '', role: user?.role ?? ('agent' as Role), active: user?.active ?? true, password: '', extraPermissions: user?.extraPermissions ?? ([] as Permission[]) });
+  const toggle = (p: Permission) => setForm((f) => ({ ...f, extraPermissions: f.extraPermissions.includes(p) ? f.extraPermissions.filter((x) => x !== p) : [...f.extraPermissions, p] }));
   const save = useAdminMutation(qk.users, (v: typeof form) => {
     const body = { ...v, password: v.password || undefined };
     return user ? api.put(`/users/${user.id}`, body) : api.post('/users', body);
@@ -55,6 +57,21 @@ function UserForm({ user, onClose }: { user: UserDTO | null; onClose: () => void
           {(id) => <Input id={id} type="password" dir="ltr" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />}
         </Field>
         <Switch checked={form.active} onChange={(active) => setForm({ ...form, active })} label="الحساب مفعل" />
+        {form.role !== 'admin' && (
+          <div className="space-y-2 sm:col-span-2">
+            <p className="text-xs font-medium text-muted">صلاحيات إضافية لهذا الشخص فقط (فوق دوره)</p>
+            {GRANTABLE_PERMISSIONS.map(({ permission, label }) => {
+              const fromRole = ROLE_PERMISSIONS[form.role].includes(permission);
+              return (
+                <label key={permission} className={cn('flex items-center gap-2 text-sm', fromRole && 'text-muted')}>
+                  <Checkbox checked={fromRole || form.extraPermissions.includes(permission)} disabled={fromRole} onChange={() => toggle(permission)} />
+                  {label}
+                  {fromRole && <span className="text-xs">(من دوره)</span>}
+                </label>
+              );
+            })}
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -80,7 +97,10 @@ export function UsersTab() {
               <tr key={u.id}>
                 <td className="px-4 py-3 font-medium">{u.name}<div className="ltr text-right text-xs text-faint">{u.email}</div></td>
                 <td className="px-4 py-3"><Badge tone={u.role === 'admin' ? 'primary' : 'neutral'}>{ROLE_LABELS[u.role]}</Badge></td>
-                <td className="px-4 py-3 text-xs text-muted">{ROLE_PERMISSIONS[u.role].length} صلاحية</td>
+                <td className="px-4 py-3 text-xs text-muted">
+                  {ROLE_PERMISSIONS[u.role].length} صلاحية
+                  {u.extraPermissions.length > 0 && <span className="text-primary"> + {u.extraPermissions.map((p) => GRANTABLE_PERMISSIONS.find((g) => g.permission === p)?.label ?? p).join('، ')}</span>}
+                </td>
                 <td className="px-4 py-3 text-xs text-muted">{fmtDateTime(u.lastLoginAt)}</td>
                 <td className="px-4 py-3">{u.active ? <Badge tone="ok">مفعل</Badge> : <Badge tone="danger">موقوف</Badge>}</td>
                 <td className="px-4 py-3 text-end"><Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => setEditing(u)}>تعديل</Button></td>

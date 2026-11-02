@@ -17,7 +17,7 @@ const rate = (part: number, whole: number) => (whole ? Math.round((part / whole)
 
 export const statsRoutes: FastifyPluginAsync = async (app) => {
   /** The delivery company's real figures, read from its account (cached 15 minutes; ?refresh=1 reads again). */
-  app.get('/stats/carrier', { preHandler: app.requirePermission('stats.view') }, async (req) => {
+  app.get('/stats/carrier', { preHandler: app.requirePermission('stats.carrier') }, async (req) => {
     const { refresh } = z.object({ refresh: z.string().optional() }).parse(req.query);
     return carrierStats(app, refresh === '1' || refresh === 'true');
   });

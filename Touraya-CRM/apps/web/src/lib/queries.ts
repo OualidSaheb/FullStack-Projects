@@ -112,7 +112,7 @@ export const useSources = () => useQuery({ queryKey: qk.sources, queryFn: () => 
 export const useForms = () => useQuery({ queryKey: qk.forms, queryFn: () => api.get<FormDTO[]>('/forms'), staleTime: 30_000 });
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: () => api.get<Settings>('/settings'), staleTime: 60_000 });
 export const useBatches = () => useQuery({ queryKey: qk.batches, queryFn: () => api.get<ExportBatchDTO[]>('/shipping/exports') });
-export const useStats = (f: OrderFilter) => useQuery({ queryKey: qk.stats(f), queryFn: () => api.get<StatsDTO>('/stats', f as never), placeholderData: keepPreviousData });
+export const useStats = (f: OrderFilter, enabled = true) => useQuery({ queryKey: qk.stats(f), queryFn: () => api.get<StatsDTO>('/stats', f as never), placeholderData: keepPreviousData, enabled });
 
 const isDetail = (r: unknown): r is OrderDetail => typeof r === 'object' && r !== null && 'items' in r && 'id' in r;
 

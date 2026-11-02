@@ -11,14 +11,14 @@ import { useLiveEvents, useNotifyPref } from '@/lib/live';
 import { PageLoader } from './ui';
 import { SyncAlert } from './sync-alert';
 
-const NAV: { to: string; label: string; short: string; icon: typeof ClipboardList; permission: Permission; mobile?: boolean }[] = [
+const NAV: { to: string; label: string; short: string; icon: typeof ClipboardList; permission: Permission | Permission[]; mobile?: boolean }[] = [
   { to: '/work', label: 'وضع الاتصال', short: 'اتصال', icon: PhoneCall, permission: 'orders.status', mobile: true },
   { to: '/orders', label: 'الطلبيات', short: 'الطلبيات', icon: ClipboardList, permission: 'orders.view', mobile: true },
   { to: '/shipping', label: 'التوصيل', short: 'التوصيل', icon: Truck, permission: 'shipping.send', mobile: true },
   { to: '/returns', label: 'المرتجعات', short: 'مرتجعات', icon: Undo2, permission: 'returns.manage' },
   { to: '/inventory', label: 'المخزون', short: 'المخزون', icon: Boxes, permission: 'inventory.view', mobile: true },
   { to: '/calculator', label: 'حاسبة الربح', short: 'الحاسبة', icon: Calculator, permission: 'orders.view' },
-  { to: '/stats', label: 'الإحصائيات', short: 'إحصائيات', icon: BarChart3, permission: 'stats.view' },
+  { to: '/stats', label: 'الإحصائيات', short: 'إحصائيات', icon: BarChart3, permission: ['stats.view', 'stats.carrier'] },
   { to: '/trash', label: 'المحذوفات', short: 'محذوفات', icon: Trash2, permission: 'orders.delete' },
   { to: '/admin', label: 'الإدارة والإعدادات', short: 'الإدارة', icon: Settings2, permission: 'sources.manage' },
 ];
@@ -68,7 +68,8 @@ export function AppShell() {
     navigate('/login');
   };
 
-  const mobileNav = NAV.filter((n) => n.mobile && can(n.permission));
+  const allowed = (p: Permission | Permission[]) => (Array.isArray(p) ? p.some((x) => can(x)) : can(p));
+  const mobileNav = NAV.filter((n) => n.mobile && allowed(n.permission));
   const sidebar = (
     <nav className="flex h-full flex-col gap-1 bg-ink p-3 text-slate-300">
       <div className="mb-5 flex items-center gap-2.5 px-2 pt-2">
@@ -78,7 +79,7 @@ export function AppShell() {
           <p className="text-[11px] text-slate-400">إدارة الطلبيات</p>
         </div>
       </div>
-      {NAV.filter((n) => can(n.permission)).map(({ to, label, icon: Icon }) => (
+      {NAV.filter((n) => allowed(n.permission)).map(({ to, label, icon: Icon }) => (
         <NavLink
           key={to}
           to={to}

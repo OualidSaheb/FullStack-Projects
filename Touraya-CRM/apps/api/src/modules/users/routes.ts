@@ -13,6 +13,7 @@ export const toUserDTO = (u: typeof users.$inferSelect): UserDTO => ({
   name: u.name,
   email: u.email,
   role: u.role,
+  extraPermissions: u.extraPermissions ?? [],
   active: u.active,
   lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
 });

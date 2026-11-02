@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { BarChart3, RotateCcw, Save } from 'lucide-react';
 import { toast } from 'sonner';
-import { computeProfit, DEFAULT_PROFIT_INPUT, type CostItem, type ProfitInput, type Settings, type ShippingStatsDTO, type StatsDTO } from '@touraya/shared';
+import { computeProfit, DEFAULT_PROFIT_INPUT, type CarrierStats, type CostItem, type ProfitInput, type Settings, type ShippingStatsDTO, type StatsDTO } from '@touraya/shared';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
@@ -30,6 +30,51 @@ import {
 } from './parts';
 
 type Tab = 'offer' | 'unit';
+
+interface RealRates {
+  confirmationRate: number | null;
+  deliveryRate: number | null;
+  leads: number | null;
+  summary: string;
+}
+
+/**
+ * The real rates: delivery from the delivery company's own account (the
+ * offer's parcels when it has finished ones, else all), confirmation and
+ * order count from the platform's last 30 days. Each part only when allowed.
+ */
+async function fetchRealRates(can: (p: 'stats.view' | 'stats.carrier') => boolean, offer: { id: number; name: string } | null): Promise<RealRates> {
+  const out: RealRates = { confirmationRate: null, deliveryRate: null, leads: null, summary: '' };
+  const parts: string[] = [];
+  if (can('stats.carrier')) {
+    const carrier = await api.get<CarrierStats & { carriers: string[] }>('/stats/carrier').catch(() => null);
+    if (carrier) {
+      const row = offer ? carrier.byOffer.find((o) => o.key === offer.name && o.delivered + o.returned > 0) : null;
+      const g = row ?? carrier.totals;
+      if (g.delivered + g.returned > 0) {
+        out.deliveryRate = Math.round(g.deliveryRate);
+        parts.push(`توصيل ${out.deliveryRate}% من ${carrier.carriers.join('، ')} (${row ? 'هذا العرض' : 'كل الطرود'}: ${g.delivered} مسلّمة / ${g.returned} مرتجعة)`);
+      }
+    }
+  }
+  if (can('stats.view')) {
+    const crm = await api.get<StatsDTO>('/stats', { from: todayDZ(-29), ...(offer ? { offerId: offer.id } : {}) } as never);
+    if (crm.totals.confirmed + crm.totals.cancelled) out.confirmationRate = Math.round(crm.totals.confirmationRate);
+    out.leads = crm.totals.all || null;
+    parts.push(`آخر 30 يوم: ${crm.totals.all} طلبية، تأكيد ${Math.round(crm.totals.confirmationRate)}%`);
+    if (out.deliveryRate === null) {
+      const ship = await api.get<ShippingStatsDTO>('/stats/shipping', { from: todayDZ(-29) } as never);
+      const row = offer ? ship.byOffer.find((o) => o.offerId === offer.id) : null;
+      const finished = row ? row.delivered + row.returned : ship.totals.delivered + ship.totals.returned;
+      if (finished) {
+        out.deliveryRate = Math.round(row ? row.rate : ship.totals.deliveryRate);
+        parts.push(`توصيل ${out.deliveryRate}% (طرود المنصة)`);
+      }
+    }
+  }
+  out.summary = parts.length ? parts.join(' · ') : 'لا توجد أرقام كافية بعد';
+  return out;
+}
 
 /** Admins: today's dollar rate and fees become everyone's starting values. */
 function SaveShared({ values }: { values: SharedValues }) {
@@ -91,22 +136,13 @@ function OfferCalculator() {
     }));
   };
 
-  /** The platform's own last-30-days rates for this offer (confirmation, delivery, leads). */
   const realRates = async () => {
     setLoadingRates(true);
     try {
-      const q = { from: todayDZ(-29), ...(offerId ? { offerId } : {}) };
-      const [crm, ship] = await Promise.all([api.get<StatsDTO>('/stats', q as never), api.get<ShippingStatsDTO>('/stats/shipping', { from: q.from } as never)]);
-      const offerShip = offerId ? ship.byOffer.find((o) => o.offerId === offerId) : null;
-      const finished = offerShip ? offerShip.delivered + offerShip.returned : ship.totals.delivered + ship.totals.returned;
-      const delivery = Math.round(offerShip ? offerShip.rate : ship.totals.deliveryRate);
-      setInput((i) => ({
-        ...i,
-        leads: crm.totals.all || i.leads,
-        confirmationRate: crm.totals.confirmed + crm.totals.cancelled ? Math.round(crm.totals.confirmationRate) : i.confirmationRate,
-        deliveryRate: finished ? delivery : i.deliveryRate,
-      }));
-      toast.success(`نسب آخر 30 يوم: ${crm.totals.all} طلبية، تأكيد ${Math.round(crm.totals.confirmationRate)}%${finished ? `، توصيل ${delivery}%` : ' (لا توجد طرود منتهية بعد)'}`);
+      const offer = offers?.find((o) => o.id === offerId);
+      const r = await fetchRealRates(can, offer ? { id: offer.id, name: offer.name } : null);
+      setInput((i) => ({ ...i, ...(r.leads ? { leads: r.leads } : {}), ...(r.confirmationRate !== null ? { confirmationRate: r.confirmationRate } : {}), ...(r.deliveryRate !== null ? { deliveryRate: r.deliveryRate } : {}) }));
+      toast.success(r.summary, { duration: 8000 });
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -121,9 +157,9 @@ function OfferCalculator() {
           <option value="">اختر عرضاً (اختياري)</option>
           {offers?.filter((o) => o.active).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </Select>
-        {can('stats.view') && (
+        {(can('stats.view') || can('stats.carrier')) && (
           <Button size="sm" icon={<BarChart3 className="size-3.5" />} loading={loadingRates} onClick={realRates}>
-            نسب المنصة الحقيقية
+            النسب الحقيقية
           </Button>
         )}
         <Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={() => confirm('مسح كل الأرقام والبدء من جديد؟') && reset()}>
@@ -251,13 +287,28 @@ const unitToProfit = (u: UnitInput): ProfitInput => ({
 });
 
 function UnitCalculator() {
+  const can = useCan();
   const { data: products } = useProducts();
+  const [loadingRates, setLoadingRates] = useState(false);
   const [u, setU, reset] = useStoredInput<UnitInput>('touraya-calculator-unit-v1', DEFAULT_UNIT);
   const set = <K extends keyof UnitInput>(key: K, value: UnitInput[K]) => setU((v) => ({ ...v, [key]: value }));
   const input = useMemo(() => unitToProfit(u), [u]);
   const r = useMemo(() => computeProfit(input), [input]);
   const fabric = u.metersPerPiece * u.pricePerMeter;
   const leadsPerSale = u.confirmationRate && u.deliveryRate ? 1 / ((u.confirmationRate / 100) * (u.deliveryRate / 100)) : null;
+
+  const realRates = async () => {
+    setLoadingRates(true);
+    try {
+      const r = await fetchRealRates(can, null);
+      setU((v) => ({ ...v, ...(r.confirmationRate !== null ? { confirmationRate: r.confirmationRate } : {}), ...(r.deliveryRate !== null ? { deliveryRate: r.deliveryRate } : {}) }));
+      toast.success(r.summary, { duration: 8000 });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setLoadingRates(false);
+    }
+  };
 
   const pickProduct = (id: number) => {
     const product = products?.find((p) => p.id === id);
@@ -272,6 +323,11 @@ function UnitCalculator() {
           <option value="">تكلفة منتج من الكتالوج (اختياري)</option>
           {products?.filter((p) => p.active).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
+        {(can('stats.view') || can('stats.carrier')) && (
+          <Button size="sm" icon={<BarChart3 className="size-3.5" />} loading={loadingRates} onClick={realRates}>
+            النسب الحقيقية
+          </Button>
+        )}
         <Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={() => confirm('مسح كل الأرقام والبدء من جديد؟') && reset()}>
           من جديد
         </Button>

@@ -25,6 +25,6 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/auth/me', { preHandler: app.requireAuth }, async (req) => ({
     ...req.user,
-    permissions: [...ROLE_PERMISSIONS[req.user.role], ...settingsPermissions(req.user.role, await getSettings(app.db))],
+    permissions: [...new Set([...ROLE_PERMISSIONS[req.user.role], ...settingsPermissions(req.user.role, await getSettings(app.db)), ...req.user.extraPermissions])],
   }));
 };

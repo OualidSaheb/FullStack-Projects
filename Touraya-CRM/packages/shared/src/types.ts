@@ -1,5 +1,5 @@
 import type { OrderStatus } from './statuses';
-import type { Role } from './roles';
+import type { Permission, Role } from './roles';
 import type { PhoneIssue } from './phone';
 import type { FieldMap } from './lead-mapping';
 import type { CarrierConfig, CarrierProvider, DeliveryType } from './carriers';
@@ -13,6 +13,7 @@ export interface UserDTO {
   name: string;
   email: string;
   role: Role;
+  extraPermissions: Permission[];
   active: boolean;
   lastLoginAt: string | null;
 }

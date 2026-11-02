@@ -16,6 +16,8 @@ export interface SessionUser {
   name: string;
   email: string;
   role: Role;
+  /** Granted to this person on top of their role. */
+  extraPermissions: Permission[];
 }
 
 declare module '@fastify/jwt' {
@@ -63,10 +65,10 @@ export const authPlugin = fp(async (app) => {
     let cached = userCache.get(id);
     if (!cached || Date.now() - cached.at > USER_TTL_MS) {
       const [u] = await app.db
-        .select({ id: users.id, name: users.name, email: users.email, role: users.role, active: users.active, deletedAt: users.deletedAt })
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role, extraPermissions: users.extraPermissions, active: users.active, deletedAt: users.deletedAt })
         .from(users)
         .where(eq(users.id, id));
-      cached = { user: u?.active && !u.deletedAt ? { id: u.id, name: u.name, email: u.email, role: u.role } : null, at: Date.now() };
+      cached = { user: u?.active && !u.deletedAt ? { id: u.id, name: u.name, email: u.email, role: u.role, extraPermissions: u.extraPermissions ?? [] } : null, at: Date.now() };
       userCache.set(id, cached);
     }
     if (!cached.user) throw new HttpError(401, 'الحساب غير مفعل');
@@ -77,7 +79,7 @@ export const authPlugin = fp(async (app) => {
   app.decorate('forgetUser', (userId: number) => void userCache.delete(userId));
   app.decorate('requirePermission', (permission: Permission) => async (request: FastifyRequest) => {
     await authenticate(request);
-    if (can(request.user.role, permission)) return;
+    if (can(request.user.role, permission) || request.user.extraPermissions.includes(permission)) return;
     // Some permissions can be granted to agents from the settings (e.g. sending to the carrier).
     if (!settingsPermissions(request.user.role, await getSettings(app.db)).includes(permission)) throw forbidden();
   });

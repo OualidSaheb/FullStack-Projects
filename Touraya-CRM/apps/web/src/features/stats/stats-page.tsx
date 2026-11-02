@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { AlertTriangle, BadgeCheck, Ban, Package, PackageCheck, Truck, Undo2, Users } from 'lucide-react';
 import { STATUS_META, type OrderFilter } from '@touraya/shared';
 import { fmtDA, fmtNumber, todayDZ } from '@/lib/format';
+import { useCan } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useOffers, useStats } from '@/lib/queries';
 import { wilayaLabel } from '@/components/geo-select';
@@ -19,12 +20,15 @@ const RANGES = [
 ] as const;
 
 export function StatsPage() {
-  const [tab, setTab] = useState<'crm' | 'shipping' | 'carrier'>('crm');
+  const can = useCan();
+  // Someone given only the delivery company's statistics sees that tab alone.
+  const full = can('stats.view');
+  const [tab, setTab] = useState<'crm' | 'shipping' | 'carrier'>(full ? 'crm' : 'carrier');
   const [range, setRange] = useState<(typeof RANGES)[number]['key']>('30d');
   const [offerId, setOfferId] = useState<number | undefined>();
   const { data: offers } = useOffers();
   const filter: OrderFilter = { from: RANGES.find((r) => r.key === range)!.from(), offerId };
-  const { data, isLoading } = useStats(filter);
+  const { data, isLoading } = useStats(filter, full);
 
   return (
     <div className="space-y-5">
@@ -48,7 +52,7 @@ export function StatsPage() {
       />
 
       <nav className="flex gap-1 overflow-x-auto border-b border-line scroll-thin">
-        {([['crm', 'كل الطلبيات (CRM)'], ['shipping', 'طرود المنصة'], ['carrier', 'شركة التوصيل (الحساب الفعلي)']] as const).map(([key, label]) => (
+        {(full ? ([['crm', 'كل الطلبيات (CRM)'], ['shipping', 'طرود المنصة'], ['carrier', 'شركة التوصيل (الحساب الفعلي)']] as const) : ([['carrier', 'شركة التوصيل (الحساب الفعلي)']] as const)).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}

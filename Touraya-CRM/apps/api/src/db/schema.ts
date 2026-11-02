@@ -8,6 +8,7 @@ import type {
   OrderEventType,
   OrderStatus,
   PhoneIssue,
+  Permission,
   Role,
   StockMovementType,
 } from '@touraya/shared';
@@ -22,6 +23,8 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   role: text('role').$type<Role>().notNull(),
+  /** Granted to this person on top of their role (e.g. the delivery company's statistics). */
+  extraPermissions: jsonb('extra_permissions').$type<Permission[]>().notNull().default([]),
   active: boolean('active').notNull().default(true),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   /** Removed employee: cannot log in, hidden from lists, name kept in the activity log. */

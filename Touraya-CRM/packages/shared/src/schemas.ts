@@ -231,6 +231,8 @@ export const userCreateSchema = z.object({
   password: z.string().min(8).max(200),
   role: z.enum(ROLES),
   active: z.boolean().default(true),
+  /** Granted on top of the role (only the grantable ones). */
+  extraPermissions: z.array(z.enum(['stats.carrier', 'stats.view', 'shipping.send', 'returns.manage', 'inventory.manage'])).max(10).default([]),
 });
 export const userUpdateSchema = userCreateSchema.partial().extend({ password: z.string().min(8).max(200).optional() });
 export type UserCreate = z.infer<typeof userCreateSchema>;

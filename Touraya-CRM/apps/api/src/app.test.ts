@@ -969,3 +969,24 @@ describe("the delivery company's own statistics", () => {
     expect(calls).toBe(1);
   });
 });
+
+describe('permissions given to one person', () => {
+  it("an agent given the delivery company's statistics sees them, and nothing more", async () => {
+    const created = (await api('POST', '/users', { name: 'Touraya', email: 'touraya-agent@test.dz', password: 'agent-pass-123', role: 'agent', extraPermissions: ['stats.carrier'] })).json();
+    expect(created.extraPermissions).toEqual(['stats.carrier']);
+    const cookie = await login('touraya-agent@test.dz', 'agent-pass-123');
+    const me = (await api('GET', '/auth/me', undefined, cookie)).json();
+    expect(me.permissions).toContain('stats.carrier');
+    expect(me.permissions).not.toContain('stats.view');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ has_more: false, data: [] }), { status: 200 })));
+    const carrier = await api('GET', '/stats/carrier?refresh=1', undefined, cookie);
+    vi.unstubAllGlobals();
+    expect(carrier.statusCode).toBe(200);
+    expect((await api('GET', '/stats', undefined, cookie)).statusCode).toBe(403);
+    // Taken back: refused at once.
+    await api('PUT', `/users/${created.id}`, { extraPermissions: [] });
+    expect((await api('GET', '/stats/carrier', undefined, cookie)).statusCode).toBe(403);
+    // Only the grantable ones are accepted.
+    expect((await api('PUT', `/users/${created.id}`, { extraPermissions: ['users.manage'] })).statusCode).toBe(400);
+  });
+});

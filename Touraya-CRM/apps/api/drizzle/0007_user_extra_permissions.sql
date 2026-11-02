@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "extra_permissions" jsonb DEFAULT '[]'::jsonb NOT NULL;
