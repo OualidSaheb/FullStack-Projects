@@ -3,6 +3,7 @@ import { eq, inArray, isNotNull, sql, type SQL } from 'drizzle-orm';
 import { BLOCKING_PHONE_ISSUES, CONFIRMED_OR_LATER, orderFilterSchema, PARCEL_LOCKED_STATUSES, type OrderStatus, type StatsDTO } from '@touraya/shared';
 import { offers, orderItems, orders, products, sources, users } from '../../db/schema';
 import { buildOrderWhere } from '../orders/query';
+import { carrierStats } from './carrier';
 import { shippingStats } from './shipping';
 import { z } from 'zod';
 
@@ -15,6 +16,12 @@ const sumWhere = (cond: SQL) => sql<number>`coalesce(sum(${orders.price}) filter
 const rate = (part: number, whole: number) => (whole ? Math.round((part / whole) * 1000) / 10 : 0);
 
 export const statsRoutes: FastifyPluginAsync = async (app) => {
+  /** The delivery company's real figures, read from its account (cached 15 minutes; ?refresh=1 reads again). */
+  app.get('/stats/carrier', { preHandler: app.requirePermission('stats.view') }, async (req) => {
+    const { refresh } = z.object({ refresh: z.string().optional() }).parse(req.query);
+    return carrierStats(app, refresh === '1' || refresh === 'true');
+  });
+
   /** Delivery company statistics: parcels only, apart from the CRM figures. */
   app.get('/stats/shipping', { preHandler: app.requirePermission('stats.view') }, async (req) => {
     const q = z.object({ from: z.string().date().optional(), to: z.string().date().optional(), carrierId: z.coerce.number().int().optional() }).parse(req.query);

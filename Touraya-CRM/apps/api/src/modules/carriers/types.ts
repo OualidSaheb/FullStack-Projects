@@ -35,6 +35,14 @@ export interface CarrierParcel {
   wilayaCode?: number;
   commune?: string;
   price?: number;
+  /** For the carrier's own statistics. */
+  lastStatusAt?: Date | null;
+  deliveryFee?: number;
+  /** Delivery paid by the seller (not added to the customer's amount). */
+  freeShipping?: boolean;
+  stopdesk?: boolean;
+  productList?: string;
+  paymentStatus?: string | null;
 }
 
 export class CarrierError extends Error {

@@ -176,7 +176,30 @@ export const yalidine: CarrierAdapter = {
   },
 
   async listParcels(c, since): Promise<CarrierParcel[]> {
-    type Row = { tracking: string; order_id?: string; firstname?: string; familyname?: string; contact_phone?: string; date_creation?: string; last_status?: string; to_wilaya_id?: number | string; to_commune_name?: string; price?: number | string };
+    type Row = {
+      tracking: string;
+      order_id?: string;
+      firstname?: string;
+      familyname?: string;
+      contact_phone?: string;
+      date_creation?: string;
+      date_last_status?: string;
+      last_status?: string;
+      to_wilaya_id?: number | string;
+      to_commune_name?: string;
+      price?: number | string;
+      delivery_fee?: number | string;
+      freeshipping?: boolean | number | string;
+      is_stopdesk?: boolean | number | string;
+      product_list?: string;
+      payment_status?: string;
+    };
+    // Yalidine dates are Algeria local time ("2026-09-26 10:12:45").
+    const date = (v?: string) => {
+      const d = v ? new Date(`${v.trim().replace(' ', 'T')}+01:00`) : null;
+      return d && !Number.isNaN(d.getTime()) ? d : null;
+    };
+    const yes = (v: unknown) => v === true || v === 1 || v === '1' || v === 'true';
     const out: CarrierParcel[] = [];
     const seen = new Set<string>();
     for (let page = 1; page <= 50; page++) {
@@ -185,19 +208,24 @@ export const yalidine: CarrierAdapter = {
       for (const p of res?.data ?? []) {
         if (!p.tracking || seen.has(p.tracking)) continue;
         seen.add(p.tracking);
-        // Yalidine dates are Algeria local time ("2026-09-26 10:12:45").
-        const createdAt = p.date_creation ? new Date(`${p.date_creation.trim().replace(' ', 'T')}+01:00`) : null;
-        if (createdAt && !Number.isNaN(createdAt.getTime()) && createdAt < since) continue;
+        const createdAt = date(p.date_creation);
+        if (createdAt && createdAt < since) continue;
         out.push({
           tracking: p.tracking,
           reference: p.order_id || undefined,
           name: [p.firstname, p.familyname].filter((v) => v && v !== '/').join(' '),
           phones: String(p.contact_phone ?? '').split(/[,;/|]+/).map((v) => v.trim()).filter(Boolean),
-          createdAt: createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt : null,
+          createdAt,
           status: p.last_status,
           wilayaCode: Number(p.to_wilaya_id) || undefined,
           commune: p.to_commune_name || undefined,
           price: p.price !== undefined && p.price !== null && p.price !== '' ? Number(p.price) : undefined,
+          lastStatusAt: date(p.date_last_status),
+          deliveryFee: Number(p.delivery_fee) || 0,
+          freeShipping: yes(p.freeshipping),
+          stopdesk: yes(p.is_stopdesk),
+          productList: p.product_list ?? '',
+          paymentStatus: p.payment_status ?? null,
         });
       }
       // Stop on an empty page, an explicit "no more", or a page with nothing new (page ignored).

@@ -939,3 +939,33 @@ describe('orders typed by hand', () => {
     expect((await api('POST', '/orders', { customerName: '', phone: '' })).statusCode).toBe(400);
   });
 });
+
+describe("the delivery company's own statistics", () => {
+  it('reads every parcel of the account (also those not in the platform), with offers and costs from the platform, cached', async () => {
+    const [carrier] = (await api('GET', '/carriers')).json();
+    await api('PUT', `/carriers/${carrier.id}`, { ...carrier, apiEnabled: true, credentials: { apiId: 'id', apiToken: '' } });
+    const linked = (await api('GET', '/orders?pageSize=100')).json().items.find((o: { carrierTracking: string | null }) => o.carrierTracking);
+    const offer = (await api('GET', '/offers')).json()[0];
+    const rows = [
+      { tracking: linked.carrierTracking, order_id: linked.reference, date_creation: '2026-10-05 10:00:00', date_last_status: '2026-10-07 10:00:00', last_status: 'Livré', price: 3500, delivery_fee: 400, freeshipping: 0, to_wilaya_id: 16, product_list: 'x', payment_status: 'payed' },
+      { tracking: 'yal-HAND1', order_id: '', date_creation: '2026-10-20 10:00:00', last_status: 'Retourné au vendeur', price: 4999, delivery_fee: 500, freeshipping: 1, to_wilaya_id: 31, product_list: offer.carrierName },
+      { tracking: 'yal-HAND2', order_id: '', date_creation: '2026-11-01 10:00:00', last_status: 'Centre', price: 2000, to_wilaya_id: 9, product_list: 'robe manuelle' },
+    ];
+    const fetchMock = vi.fn(async (url: string) => new Response(JSON.stringify({ has_more: false, data: String(url).includes('page=1&') ? rows : [] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const s = (await api('GET', '/stats/carrier')).json();
+    const again = (await api('GET', '/stats/carrier')).json();
+    const calls = fetchMock.mock.calls.length;
+    await api('GET', '/stats/carrier?refresh=1');
+    vi.unstubAllGlobals();
+
+    expect(s.totals).toMatchObject({ parcels: 3, delivered: 1, returned: 1, transit: 1, deliveryRate: 50, revenue: 3500, pending: 2000, lostSales: 4999 });
+    expect(s.inPlatform).toBe(1);
+    expect(s.byMonth.map((m: { key: string }) => m.key)).toEqual(['2026-11', '2026-10']);
+    expect(s.byOffer.map((o: { key: string }) => o.key)).toEqual(expect.arrayContaining([offer.name, 'robe manuelle']));
+    expect(s.payments).toEqual([{ status: 'payed', count: 1, amount: 3500 }]);
+    expect(again.totals.parcels).toBe(3);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(calls); // refresh read again, the second call came from the cache
+    expect(calls).toBe(1);
+  });
+});

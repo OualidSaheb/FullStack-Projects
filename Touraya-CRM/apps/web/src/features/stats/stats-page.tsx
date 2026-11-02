@@ -8,6 +8,7 @@ import { wilayaLabel } from '@/components/geo-select';
 import { StatusIcon } from '@/components/status';
 import { Card, CardHeader, PageHeader, PageLoader, Select } from '@/components/ui';
 import { BarList, DailyColumns, StatTile } from './charts';
+import { CarrierActualStats } from './carrier-actual-stats';
 import { ShippingStats } from './shipping-stats';
 
 const RANGES = [
@@ -18,7 +19,7 @@ const RANGES = [
 ] as const;
 
 export function StatsPage() {
-  const [tab, setTab] = useState<'crm' | 'shipping'>('crm');
+  const [tab, setTab] = useState<'crm' | 'shipping' | 'carrier'>('crm');
   const [range, setRange] = useState<(typeof RANGES)[number]['key']>('30d');
   const [offerId, setOfferId] = useState<number | undefined>();
   const { data: offers } = useOffers();
@@ -31,13 +32,13 @@ export function StatsPage() {
         title="الإحصائيات"
         actions={
           <>
-            <div className="flex rounded-lg border border-line bg-surface p-0.5">
+            {tab !== 'carrier' && <div className="flex rounded-lg border border-line bg-surface p-0.5">
               {RANGES.map((r) => (
                 <button key={r.key} onClick={() => setRange(r.key)} className={cn('rounded-md px-3 py-1.5 text-xs font-medium transition', range === r.key ? 'bg-fg text-bg' : 'text-muted hover:text-fg')}>
                   {r.label}
                 </button>
               ))}
-            </div>
+            </div>}
             {tab === 'crm' && <Select className="h-9 w-auto text-sm" value={offerId ?? ''} onChange={(e) => setOfferId(e.target.value ? Number(e.target.value) : undefined)} aria-label="العرض">
               <option value="">كل العروض</option>
               {offers?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
@@ -47,7 +48,7 @@ export function StatsPage() {
       />
 
       <nav className="flex gap-1 overflow-x-auto border-b border-line scroll-thin">
-        {([['crm', 'كل الطلبيات (CRM)'], ['shipping', 'شركة التوصيل']] as const).map(([key, label]) => (
+        {([['crm', 'كل الطلبيات (CRM)'], ['shipping', 'طرود المنصة'], ['carrier', 'شركة التوصيل (الحساب الفعلي)']] as const).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -58,7 +59,9 @@ export function StatsPage() {
         ))}
       </nav>
 
-      {tab === 'shipping' ? (
+      {tab === 'carrier' ? (
+        <CarrierActualStats />
+      ) : tab === 'shipping' ? (
         <ShippingStats from={RANGES.find((r) => r.key === range)!.from()} />
       ) : isLoading || !data ? (
         <PageLoader />
