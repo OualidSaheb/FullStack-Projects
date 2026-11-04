@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Megaphone, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { AdSpendDTO, AdSpendInput } from '@touraya/shared';
+import { weekKey, type AdSpendDTO, type AdSpendInput } from '@touraya/shared';
 import { api } from '@/lib/api';
 import { useCan } from '@/lib/auth';
 import { fmtDA, todayDZ } from '@/lib/format';
@@ -13,6 +13,11 @@ const RATE_KEY = 'touraya-usd-rate';
 const MONTHS = ['جانفي', 'فيفري', 'مارس', 'أفريل', 'ماي', 'جوان', 'جويلية', 'أوت', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 const monthLabel = (key: string) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
 const usd = (n: number) => `${n.toFixed(2)} $`;
+const weekLabel = (key: string) => {
+  const end = new Date(`${key}T00:00:00Z`);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return `${key.slice(8, 10)}/${key.slice(5, 7)} → ${end.toISOString().slice(8, 10)}/${end.toISOString().slice(5, 7)}`;
+};
 
 function storedRate(): number | null {
   try {
@@ -67,33 +72,43 @@ export function AdsCard() {
   };
 
   const list = ads ?? [];
-  const totalUsd = list.reduce((n, a) => n + a.amountUsd, 0);
-  const totalDa = list.reduce((n, a) => n + a.amountUsd * a.usdRate, 0);
   const months = [...list.reduce((m, a) => {
     const k = a.day.slice(0, 7);
     const cur = m.get(k) ?? { usd: 0, da: 0 };
     return m.set(k, { usd: cur.usd + a.amountUsd, da: cur.da + a.amountUsd * a.usdRate });
-  }, new Map<string, { usd: number; da: number }>())];
+  }, new Map<string, { usd: number; da: number }>())].sort((a, b) => b[0].localeCompare(a[0]));
+  const weeks = [...list.reduce((m, a) => {
+    const k = weekKey(`${a.day}T12:00:00Z`);
+    const cur = m.get(k) ?? { usd: 0, da: 0 };
+    return m.set(k, { usd: cur.usd + a.amountUsd, da: cur.da + a.amountUsd * a.usdRate });
+  }, new Map<string, { usd: number; da: number }>())].sort((a, b) => b[0].localeCompare(a[0]));
   const days = [...list.reduce((m, a) => m.set(a.day, [...(m.get(a.day) ?? []), a]), new Map<string, AdSpendDTO[]>())];
 
   return (
     <Card>
-      <CardHeader title="مصاريف الإعلانات" icon={<Megaphone className="size-4 text-muted" />} />
+      <CardHeader title="مصاريف الإعلانات اليومية (للحساب الشهري والأسبوعي)" icon={<Megaphone className="size-4 text-muted" />} />
       <div className="space-y-4 p-4 text-sm">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg bg-subtle px-3 py-2">
-            <p className="text-xs text-muted">المجموع الكلي</p>
-            <p className="ltr text-right text-lg font-bold">{usd(totalUsd)}</p>
-            <p className="ltr text-right text-xs text-muted">{fmtDA(Math.round(totalDa))}</p>
-          </div>
-          {months.slice(0, 2).map(([k, v]) => (
-            <div key={k} className="rounded-lg bg-subtle px-3 py-2">
-              <p className="text-xs text-muted">{monthLabel(k)}</p>
-              <p className="ltr text-right text-lg font-bold">{usd(v.usd)}</p>
-              <p className="ltr text-right text-xs text-muted">{fmtDA(Math.round(v.da))}</p>
+        <p className="text-xs text-muted">للحساب الشهري والأسبوعي: أضف مصروف كل يوم (أو كل أسبوع في يوم واحد). الربح الكلي يُحسب بـ «المبلغ الكلي للإعلانات» في الأعلى إن أُدخل.</p>
+        {months.length > 0 && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="mb-1 text-xs font-medium text-muted">شهرياً</p>
+              <ul className="divide-y divide-line rounded-lg border border-line">
+                {months.map(([k, v]) => (
+                  <li key={k} className="flex justify-between gap-2 px-3 py-1.5"><span>{monthLabel(k)}</span><span className="ltr">{usd(v.usd)} · {fmtDA(Math.round(v.da))}</span></li>
+                ))}
+              </ul>
             </div>
-          ))}
-        </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-muted">أسبوعياً</p>
+              <ul className="max-h-52 divide-y divide-line overflow-y-auto rounded-lg border border-line scroll-thin">
+                {weeks.map(([k, v]) => (
+                  <li key={k} className="flex justify-between gap-2 px-3 py-1.5"><span className="ltr">{weekLabel(k)}</span><span className="ltr">{usd(v.usd)} · {fmtDA(Math.round(v.da))}</span></li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
 
         {can('ads.manage') && (
           <div className="space-y-3 rounded-lg border border-line p-3">

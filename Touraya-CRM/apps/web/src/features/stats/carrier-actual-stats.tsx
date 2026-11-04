@@ -10,6 +10,7 @@ import { errorMessage } from '@/lib/queries';
 import { wilayaLabel } from '@/components/geo-select';
 import { Alert, Button, Card, CardHeader, PageLoader } from '@/components/ui';
 import { AdsCard } from './ads-card';
+import { AdsTotalCard } from './ads-total-card';
 import { BarList, StatTile } from './charts';
 
 type DTO = CarrierStats & { fetchedAt: string; carriers: string[]; withoutCost: string[] };
@@ -106,6 +107,7 @@ export function CarrierActualStats() {
     return (
       <div className="space-y-4">
         <Alert tone="danger" icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>{errorMessage(error)}</Alert>
+        <AdsTotalCard daysUsd={0} />
         <AdsCard />
       </div>
     );
@@ -132,11 +134,18 @@ export function CarrierActualStats() {
         <StatTile label="متوسط مدة التوصيل" value={t.avgDeliveryDays !== null ? `${t.avgDeliveryDays} يوم` : '—'} hint="من إنشاء الطرد إلى التسليم" icon={<Clock className="size-4" />} />
       </div>
 
+      <AdsTotalCard daysUsd={data.adsByMonth.reduce((n, m) => n + m.usd, 0)} />
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatTile label="الربح قبل الإعلانات" value={fmtDA(Math.round(t.profit))} icon={<TrendingUp className={cn('size-4', t.profit < 0 ? 'text-danger' : 'text-ok')} />} />
-        <StatTile label="مصروف الإعلانات" value={`${t.adsUsd.toFixed(2)} $`} hint={fmtDA(Math.round(t.ads))} icon={<Megaphone className="size-4 text-warn" />} />
         <StatTile
-          label="الربح بعد الإعلانات"
+          label="المصروف الكلي للإعلانات"
+          value={`${t.adsUsd.toFixed(2)} $`}
+          hint={<>{fmtDA(Math.round(t.ads))} · {data.adsSource === 'total' ? 'المبلغ الكلي المُدخل' : 'مجموع الأيام'}</>}
+          icon={<Megaphone className="size-4 text-warn" />}
+        />
+        <StatTile
+          label="الربح الكلي بعد الإعلانات"
           value={<span className={t.profitAfterAds < 0 ? 'text-danger' : 'text-ok'}>{fmtDA(Math.round(t.profitAfterAds))}</span>}
           hint={t.revenue ? `${((t.profitAfterAds / t.revenue) * 100).toFixed(1)}% من المدخول` : undefined}
           icon={<Banknote className={cn('size-4', t.profitAfterAds < 0 ? 'text-danger' : 'text-ok')} />}
@@ -182,8 +191,6 @@ export function CarrierActualStats() {
         <p className="px-4 py-2 text-xs text-muted">حسب تاريخ إنشاء الطرد. نسبة التوصيل = المسلّمة من الطرود التي انتهت (سُلّمت أو رجعت).</p>
       </Card>
 
-      <AdsCard />
-
       <Card className="overflow-hidden">
         <CardHeader title="حسب العرض" />
         <GroupTable rows={data.byOffer} rowKey={(r) => r.key} label={(r) => r.key} />
@@ -213,6 +220,8 @@ export function CarrierActualStats() {
         <CardHeader title="حسب الولاية" />
         <GroupTable rows={data.byWilaya} rowKey={(r) => r.key ?? 'none'} label={(r) => (r.key ? wilayaLabel(r.key) : 'غير محددة')} money={false} />
       </Card>
+
+      <AdsCard />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { adSpendSchema, type AdSpendDTO } from '@touraya/shared';
 import type { DbOrTx } from '../../db/client';
 import { adSpend, offers, users } from '../../db/schema';
 import { notFound } from '../../lib/errors';
+import { getSettings, saveSettings } from '../settings/service';
 
 const idParams = z.object({ id: z.coerce.number().int() });
 
@@ -32,6 +33,13 @@ export const adRoutes: FastifyPluginAsync = async (app) => {
   const manage = { preHandler: app.requirePermission('ads.manage') };
 
   app.get('/ads', { preHandler: app.requirePermission('stats.carrier') }, async () => listAdSpend(app.db));
+
+  /** The whole spend so far, typed in one go (null: back to the sum of the days). */
+  app.get('/ads/total', { preHandler: app.requirePermission('stats.carrier') }, async () => (await getSettings(app.db)).adsTotal);
+  app.put('/ads/total', manage, async (req) => {
+    const total = z.object({ usd: z.number().min(0).max(10_000_000), usdRate: z.number().positive().max(10_000) }).nullable().parse(req.body ?? null);
+    return (await saveSettings(app.db, { ...(await getSettings(app.db)), adsTotal: total })).adsTotal;
+  });
 
   app.post('/ads', manage, async (req) => {
     const input = adSpendSchema.parse(req.body);

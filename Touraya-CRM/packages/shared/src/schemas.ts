@@ -359,6 +359,12 @@ export const settingsSchema = z.object({
    * Profit calculator values shared by everyone (set by an admin): the dollar's
    * price, the fees per order. Each person can still change them on the page.
    */
+  /**
+   * The whole ad spend so far, typed in one go (e.g. Ads Manager's total):
+   * when set, the overall profit uses it; the days typed below only split it
+   * by month and week.
+   */
+  adsTotal: z.object({ usd: z.number().min(0), usdRate: z.number().positive() }).nullable().default(null),
   calculator: z
     .object({
       usdRate: z.number().min(0),

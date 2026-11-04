@@ -1010,6 +1010,16 @@ describe('ad spend', () => {
     expect(s.totals.profitAfterAds).toBeCloseTo(s.totals.profit - (5000 + 3150));
     expect(s.adsByMonth).toEqual([{ key: '2026-10', usd: 32.5, da: 8150 }]);
 
+    // The whole spend typed in one go: the overall figures use it, the months keep the days.
+    expect((await api('PUT', '/ads/total', { usd: 500, usdRate: 255 })).json()).toEqual({ usd: 500, usdRate: 255 });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ has_more: false, data: [] }), { status: 200 })));
+    const withTotal = (await api('GET', '/stats/carrier')).json();
+    vi.unstubAllGlobals();
+    expect(withTotal).toMatchObject({ adsSource: 'total', totals: { adsUsd: 500, ads: 127_500 } });
+    expect(withTotal.adsByMonth).toEqual([{ key: '2026-10', usd: 32.5, da: 8150 }]);
+    await app.inject({ method: 'PUT', url: '/api/ads/total', headers: { cookie: adminCookie, 'content-type': 'application/json' }, payload: 'null' });
+    expect((await api('GET', '/ads/total')).json()).toBeNull();
+
     // An agent without the permission cannot write.
     const agent = await login('a@test.dz', 'agent-pass');
     expect((await api('POST', '/ads', { day: '2026-10-07', amountUsd: 5, usdRate: 250 }, agent)).statusCode).toBe(403);

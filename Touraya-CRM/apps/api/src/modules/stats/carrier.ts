@@ -66,11 +66,13 @@ export async function carrierStats(ctx: AppContext, refresh: boolean): Promise<C
       });
     }
   }
-  const { returnFee, confirmFee, confirmFeeOn } = (await getSettings(ctx.db)).calculator;
+  const settings = await getSettings(ctx.db);
+  const { returnFee, confirmFee, confirmFeeOn } = settings.calculator;
+  const total = settings.adsTotal ? { usd: settings.adsTotal.usd, da: settings.adsTotal.usd * settings.adsTotal.usdRate } : null;
   const ads = (await listAdSpend(ctx.db)).map((a) => ({ day: a.day, usd: a.amountUsd, da: a.amountUsd * a.usdRate, offer: a.offerName }));
   const fetchedAt = Math.min(...usable.map((c) => cache.get(c.id)?.at ?? Date.now()));
   return {
-    ...computeCarrierStats(parcels, { returnFee, confirmFee, confirmFeeOn }, ads),
+    ...computeCarrierStats(parcels, { returnFee, confirmFee, confirmFeeOn }, ads, total),
     fetchedAt: new Date(fetchedAt).toISOString(),
     carriers: usable.map((c) => c.name),
     withoutCost: [...withoutCost],

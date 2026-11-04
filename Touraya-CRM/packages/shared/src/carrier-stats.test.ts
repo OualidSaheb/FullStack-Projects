@@ -74,4 +74,13 @@ describe('delivery company statistics', () => {
     expect(s.adsByMonth.map((m) => m.key)).toEqual(['2026-12', '2026-11', '2026-10']);
     expect(s.byWeek.find((w) => w.key === '2026-10-05')).toMatchObject({ adsUsd: 30 });
   });
+
+  it('the whole spend typed in one go is used for the overall figures; the days still split it by month', () => {
+    const ads = [{ day: '2026-10-05', usd: 30, da: 7500, offer: null }];
+    const s = computeCarrierStats([p({})], opts, ads, { usd: 100, da: 25_000 });
+    expect(s.adsSource).toBe('total');
+    expect(s.totals).toMatchObject({ adsUsd: 100, ads: 25_000, profitAfterAds: 1750 - 25_000 });
+    expect(s.byMonth[0]).toMatchObject({ key: '2026-10', adsUsd: 30 });
+    expect(computeCarrierStats([p({})], opts, ads).adsSource).toBe('days');
+  });
 });

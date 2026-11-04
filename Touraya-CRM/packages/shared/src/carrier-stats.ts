@@ -91,6 +91,8 @@ export interface CarrierStats {
   byWeek: (CarrierGroupStats & { key: string })[];
   byOffer: (CarrierGroupStats & { key: string })[];
   byWilaya: (CarrierGroupStats & { key: number | null })[];
+  /** Where the overall ad spend comes from: the total typed in one go, or the sum of the days. */
+  adsSource: 'total' | 'days';
   /** Ad spend by day and by month (newest first). */
   adsByDay: { day: string; usd: number; da: number }[];
   adsByMonth: { key: string; usd: number; da: number }[];
@@ -196,7 +198,7 @@ function groupBy<K extends string | number | null>(parcels: CarrierStatParcel[],
   return [...buckets].map(([k, list]) => ({ key: k, ...group(list, opts) }));
 }
 
-export function computeCarrierStats(parcels: CarrierStatParcel[], opts: CarrierStatOptions, ads: CarrierStatAd[] = []): CarrierStats {
+export function computeCarrierStats(parcels: CarrierStatParcel[], opts: CarrierStatOptions, ads: CarrierStatAd[] = [], totalAds: { usd: number; da: number } | null = null): CarrierStats {
   const dated = parcels.filter((p) => p.createdAt);
   const byDate = (a: { key: string }, b: { key: string }) => b.key.localeCompare(a.key);
   const labels = new Map<string, number>();
@@ -221,7 +223,9 @@ export function computeCarrierStats(parcels: CarrierStatParcel[], opts: CarrierS
   const weeks = groupBy(dated, (p) => weekKey(p.createdAt!), opts);
   for (const k of sumBy((a) => weekKey(`${a.day}T12:00:00Z`)).keys()) if (!weeks.some((w) => w.key === k)) weeks.push({ key: k, ...group([], opts) });
   return {
-    totals: withAds(group(parcels, opts), ads),
+    // The whole spend typed in one go wins over the sum of the days for the overall figures.
+    totals: totalAds ? withAds(group(parcels, opts), [{ day: '', usd: totalAds.usd, da: totalAds.da, offer: null }]) : withAds(group(parcels, opts), ads),
+    adsSource: totalAds ? 'total' : 'days',
     byMonth: months.map((m) => withAds(m, ads.filter((a) => a.day.slice(0, 7) === m.key))).sort(byDate),
     byWeek: weeks.map((w) => withAds(w, ads.filter((a) => weekKey(`${a.day}T12:00:00Z`) === w.key))).sort(byDate),
     // Per offer: only the spend typed for that offer.
