@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Banknote, Clock, Hourglass, Package, PackageCheck, RefreshCw, TrendingUp, Truck, Undo2 } from 'lucide-react';
+import { AlertTriangle, Banknote, Clock, Hourglass, Megaphone, Package, PackageCheck, RefreshCw, TrendingUp, Truck, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { CarrierGroupStats, CarrierStats, ParcelStage } from '@touraya/shared';
 import { api } from '@/lib/api';
@@ -9,6 +9,7 @@ import { fmtDA, fmtNumber, timeAgo } from '@/lib/format';
 import { errorMessage } from '@/lib/queries';
 import { wilayaLabel } from '@/components/geo-select';
 import { Alert, Button, Card, CardHeader, PageLoader } from '@/components/ui';
+import { AdsCard } from './ads-card';
 import { BarList, StatTile } from './charts';
 
 type DTO = CarrierStats & { fetchedAt: string; carriers: string[]; withoutCost: string[] };
@@ -46,10 +47,10 @@ function Rate({ g }: { g: CarrierGroupStats }) {
 /** One row per period / offer / wilaya: counts, delivery rate, money. */
 function GroupTable<T extends CarrierGroupStats>({ rows, label, rowKey, money = true }: { rows: T[]; label: (r: T) => ReactNode; rowKey: (r: T) => string | number; money?: boolean }) {
   if (!rows.length) return <p className="py-6 text-center text-sm text-faint">لا توجد بيانات</p>;
-  const heads = ['', 'الطرود', 'سُلّمت', 'مرتجعة', 'في الطريق', 'نسبة التوصيل', ...(money ? ['المدخول', 'الربح قبل الإعلانات'] : [])];
+  const heads = ['', 'الطرود', 'سُلّمت', 'مرتجعة', 'في الطريق', 'نسبة التوصيل', ...(money ? ['المدخول', 'الربح قبل الإعلانات', 'الإعلانات', 'الربح بعد الإعلانات'] : [])];
   return (
     <div className="max-h-[28rem] overflow-auto scroll-thin">
-      <table className="w-full min-w-[640px] text-sm">
+      <table className={cn('w-full text-sm', money ? 'min-w-[900px]' : 'min-w-[640px]')}>
         <thead className="sticky top-0 bg-subtle text-xs text-muted">
           <tr>{heads.map((h) => <th key={h} className="px-3 py-2 text-start font-semibold">{h}</th>)}</tr>
         </thead>
@@ -63,7 +64,13 @@ function GroupTable<T extends CarrierGroupStats>({ rows, label, rowKey, money = 
               <td className="ltr px-3 py-2 text-right text-muted">{fmtNumber(r.transit + r.failed + r.notShipped)}</td>
               <td className="px-3 py-2"><Rate g={r} /></td>
               {money && <td className="ltr px-3 py-2 text-right">{fmtDA(r.revenue)}</td>}
-              {money && <td className={cn('ltr px-3 py-2 text-right font-semibold', r.profit < 0 ? 'text-danger' : 'text-ok')}>{fmtDA(Math.round(r.profit))}</td>}
+              {money && <td className={cn('ltr px-3 py-2 text-right', r.profit < 0 ? 'text-danger' : 'text-ok')}>{fmtDA(Math.round(r.profit))}</td>}
+              {money && (
+                <td className="ltr px-3 py-2 text-right text-muted">
+                  {r.adsUsd ? <>{r.adsUsd.toFixed(2)} $<span className="block text-xs">{fmtDA(Math.round(r.ads))}</span></> : '—'}
+                </td>
+              )}
+              {money && <td className={cn('ltr px-3 py-2 text-right font-semibold', r.profitAfterAds < 0 ? 'text-danger' : 'text-ok')}>{fmtDA(Math.round(r.profitAfterAds))}</td>}
             </tr>
           ))}
         </tbody>
@@ -94,7 +101,14 @@ export function CarrierActualStats() {
   };
 
   if (isLoading) return <div className="space-y-2 py-6 text-center text-sm text-muted"><PageLoader /><p>جاري قراءة كل الطرود من شركة التوصيل…</p></div>;
-  if (error || !data) return <Alert tone="danger" icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>{errorMessage(error)}</Alert>;
+  // The ad spend can still be typed when the carrier cannot be read.
+  if (error || !data)
+    return (
+      <div className="space-y-4">
+        <Alert tone="danger" icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}>{errorMessage(error)}</Alert>
+        <AdsCard />
+      </div>
+    );
   const t = data.totals;
   const onWay = t.transit + t.failed + t.notShipped;
 
@@ -114,18 +128,32 @@ export function CarrierActualStats() {
         <StatTile label="في الطريق الآن" value={fmtNumber(onWay)} hint={t.failed ? `منها ${t.failed} فشل توصيلها` : t.notShipped ? `منها ${t.notShipped} لم تُشحن بعد` : undefined} icon={<Truck className="size-4" />} />
         <StatTile label="المدخول (المسلّمة)" value={fmtDA(t.revenue)} icon={<Banknote className="size-4 text-ok" />} />
         <StatTile label="ينتظر التحصيل" value={fmtDA(t.pending)} hint="الطرود التي في الطريق" icon={<Hourglass className="size-4" />} />
-        <StatTile label="الربح قبل الإعلانات" value={fmtDA(Math.round(t.profit))} hint={`مبيعات ضاعت بالإرجاع: ${fmtDA(t.lostSales)}`} icon={<TrendingUp className={cn('size-4', t.profit < 0 ? 'text-danger' : 'text-ok')} />} />
+        <StatTile label="مبيعات ضاعت بالإرجاع" value={fmtDA(t.lostSales)} icon={<Undo2 className="size-4 text-danger" />} />
         <StatTile label="متوسط مدة التوصيل" value={t.avgDeliveryDays !== null ? `${t.avgDeliveryDays} يوم` : '—'} hint="من إنشاء الطرد إلى التسليم" icon={<Clock className="size-4" />} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatTile label="الربح قبل الإعلانات" value={fmtDA(Math.round(t.profit))} icon={<TrendingUp className={cn('size-4', t.profit < 0 ? 'text-danger' : 'text-ok')} />} />
+        <StatTile label="مصروف الإعلانات" value={`${t.adsUsd.toFixed(2)} $`} hint={fmtDA(Math.round(t.ads))} icon={<Megaphone className="size-4 text-warn" />} />
+        <StatTile
+          label="الربح بعد الإعلانات"
+          value={<span className={t.profitAfterAds < 0 ? 'text-danger' : 'text-ok'}>{fmtDA(Math.round(t.profitAfterAds))}</span>}
+          hint={t.revenue ? `${((t.profitAfterAds / t.revenue) * 100).toFixed(1)}% من المدخول` : undefined}
+          icon={<Banknote className={cn('size-4', t.profitAfterAds < 0 ? 'text-danger' : 'text-ok')} />}
+        />
       </div>
 
       <Card>
         <CardHeader title="كيف يُحسب الربح" />
         <div className="space-y-1 p-4 text-sm">
           <p className="ltr text-right">
-            {fmtDA(t.revenue)} − المنتج {fmtDA(t.productCost)} − التوصيل على حسابك {fmtDA(t.sellerDelivery)} − رجوع الطرود {fmtDA(t.returnCosts)} − التأكيد {fmtDA(t.confirmCosts)} = <b>{fmtDA(Math.round(t.profit))}</b>
+            {fmtDA(t.revenue)} − المنتج {fmtDA(t.productCost)} − التوصيل على حسابك {fmtDA(t.sellerDelivery)} − رجوع الطرود {fmtDA(t.returnCosts)} − التأكيد {fmtDA(t.confirmCosts)} = <b>{fmtDA(Math.round(t.profit))}</b> قبل الإعلانات
+          </p>
+          <p className="ltr text-right">
+            {fmtDA(Math.round(t.profit))} − الإعلانات {fmtDA(Math.round(t.ads))} ({t.adsUsd.toFixed(2)} $) = <b className={t.profitAfterAds < 0 ? 'text-danger' : 'text-ok'}>{fmtDA(Math.round(t.profitAfterAds))}</b> بعد الإعلانات
           </p>
           <p className="text-xs text-muted">
-            ثمن الرجوع والتأكيد من «حاسبة الربح» (القيم المحفوظة للجميع)، وتكلفة المنتج من سعر تكلفته في الكتالوج. الإعلانات غير محسوبة هنا — اطرح مصروفك من هذا الربح، أو استعمل حاسبة الربح.
+            ثمن الرجوع والتأكيد من «حاسبة الربح» (القيم المحفوظة للجميع)، وتكلفة المنتج من سعر تكلفته في الكتالوج، والإعلانات من «مصاريف الإعلانات» أسفله (كل يوم بسعر صرفه). الطرود حسب تاريخ إنشائها والإعلانات حسب يومها.
           </p>
           {data.withoutCost.length > 0 && (
             <p className="text-xs text-warn">
@@ -154,9 +182,12 @@ export function CarrierActualStats() {
         <p className="px-4 py-2 text-xs text-muted">حسب تاريخ إنشاء الطرد. نسبة التوصيل = المسلّمة من الطرود التي انتهت (سُلّمت أو رجعت).</p>
       </Card>
 
+      <AdsCard />
+
       <Card className="overflow-hidden">
         <CardHeader title="حسب العرض" />
         <GroupTable rows={data.byOffer} rowKey={(r) => r.key} label={(r) => r.key} />
+        <p className="px-4 py-2 text-xs text-muted">لكل عرض: فقط المصاريف التي أُضيفت لهذا العرض. مصاريف «كل العروض» تُحسب في المجموع والأشهر فقط.</p>
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-2">

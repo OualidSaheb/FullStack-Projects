@@ -24,6 +24,7 @@ import { sourceRoutes } from './modules/sources/routes';
 import { formRoutes } from './modules/forms/routes';
 import { metaRoutes } from './modules/meta/routes';
 import { privacyPage } from './modules/meta/privacy';
+import { adRoutes } from './modules/ads/routes';
 import { statsRoutes } from './modules/stats/routes';
 import { userRoutes } from './modules/users/routes';
 import { keepAlive } from './lib/keep-alive';
@@ -83,6 +84,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
       await api.register(ingestRoutes);
       await api.register(shippingRoutes);
       await api.register(statsRoutes);
+      await api.register(adRoutes);
       await api.register(settingsRoutes);
       await api.register(carrierWebhookRoutes);
       await api.register(liveRoutes);

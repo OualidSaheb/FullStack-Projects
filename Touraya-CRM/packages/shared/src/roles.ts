@@ -25,6 +25,7 @@ export const PERMISSIONS = [
   'customers.blacklist',
   'stats.view',
   'stats.carrier', // the delivery company's real figures (its own account)
+  'ads.manage', // type the ad spend (dollars, exchange rate)
   'products.manage',
   'users.manage',
   'sources.manage',
@@ -46,6 +47,7 @@ const MANAGER: Permission[] = [
   'customers.blacklist',
   'stats.view',
   'stats.carrier',
+  'ads.manage',
   'products.manage',
 ];
 
@@ -63,6 +65,7 @@ export function can(role: Role, permission: Permission): boolean {
 /** What can be granted to one person on top of their role (Admin > employees). */
 export const GRANTABLE_PERMISSIONS: { permission: Permission; label: string }[] = [
   { permission: 'stats.carrier', label: 'إحصائيات شركة التوصيل (الحساب الفعلي)' },
+  { permission: 'ads.manage', label: 'إدخال مصاريف الإعلانات' },
   { permission: 'stats.view', label: 'كل الإحصائيات' },
   { permission: 'shipping.send', label: 'إرسال الطلبيات لشركة التوصيل' },
   { permission: 'returns.manage', label: 'المرتجعات' },

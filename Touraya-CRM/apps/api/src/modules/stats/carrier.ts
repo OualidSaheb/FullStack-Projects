@@ -6,6 +6,7 @@ import { HttpError } from '../../lib/errors';
 import { ADAPTERS } from '../carriers/registry';
 import { loadCarrierRow } from '../carriers/service';
 import type { CarrierParcel } from '../carriers/types';
+import { listAdSpend } from '../ads/routes';
 import { getSettings } from '../settings/service';
 
 /** Parcels read from the carrier, kept a while: each page is a request the carrier counts. */
@@ -66,9 +67,10 @@ export async function carrierStats(ctx: AppContext, refresh: boolean): Promise<C
     }
   }
   const { returnFee, confirmFee, confirmFeeOn } = (await getSettings(ctx.db)).calculator;
+  const ads = (await listAdSpend(ctx.db)).map((a) => ({ day: a.day, usd: a.amountUsd, da: a.amountUsd * a.usdRate, offer: a.offerName }));
   const fetchedAt = Math.min(...usable.map((c) => cache.get(c.id)?.at ?? Date.now()));
   return {
-    ...computeCarrierStats(parcels, { returnFee, confirmFee, confirmFeeOn }),
+    ...computeCarrierStats(parcels, { returnFee, confirmFee, confirmFeeOn }, ads),
     fetchedAt: new Date(fetchedAt).toISOString(),
     carriers: usable.map((c) => c.name),
     withoutCost: [...withoutCost],

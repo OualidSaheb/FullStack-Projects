@@ -31,6 +31,15 @@ export interface CarrierStatParcel {
   inPlatform: boolean;
 }
 
+/** A day's ad spend, in dinars already (dollars × that day's rate). */
+export interface CarrierStatAd {
+  day: string;
+  usd: number;
+  da: number;
+  /** Offer name when the spend was for one offer. */
+  offer: string | null;
+}
+
 export interface CarrierStatOptions {
   /** Charged by the carrier on a returned parcel (DA). */
   returnFee: number;
@@ -66,6 +75,10 @@ export interface CarrierGroupStats {
   confirmCosts: number;
   /** Revenue minus everything above (ads not included). */
   profit: number;
+  /** Ad spend of the same period / offer (dollars, and dinars at each day's rate). */
+  adsUsd: number;
+  ads: number;
+  profitAfterAds: number;
   /** Delivered parcels whose cost is unknown (their goods counted as free). */
   unknownCost: number;
   /** Average days from creation to delivery. */
@@ -78,6 +91,9 @@ export interface CarrierStats {
   byWeek: (CarrierGroupStats & { key: string })[];
   byOffer: (CarrierGroupStats & { key: string })[];
   byWilaya: (CarrierGroupStats & { key: number | null })[];
+  /** Ad spend by day and by month (newest first). */
+  adsByDay: { day: string; usd: number; da: number }[];
+  adsByMonth: { key: string; usd: number; da: number }[];
   /** The carrier's own labels and how many parcels carry each. */
   statuses: { label: string; stage: ParcelStage; count: number }[];
   payments: { status: string; count: number; amount: number }[];
@@ -124,6 +140,9 @@ export function group(parcels: CarrierStatParcel[], opts: CarrierStatOptions): C
     returnCosts: 0,
     confirmCosts: 0,
     profit: 0,
+    adsUsd: 0,
+    ads: 0,
+    profitAfterAds: 0,
     unknownCost: 0,
     avgDeliveryDays: null,
   };
@@ -157,7 +176,15 @@ export function group(parcels: CarrierStatParcel[], opts: CarrierStatOptions): C
   // Parcels still on their way only cost their confirmation so far.
   g.profit = g.revenue - g.productCost - g.sellerDelivery - g.returnCosts - g.confirmCosts;
   g.avgDeliveryDays = timed ? Math.round((days / timed) * 10) / 10 : null;
+  g.profitAfterAds = g.profit;
   return g;
+}
+
+/** Puts the ad spend on a group: ads of its period or offer, profit after them. */
+function withAds<T extends CarrierGroupStats>(g: T, ads: CarrierStatAd[]): T {
+  const usd = ads.reduce((n, a) => n + a.usd, 0);
+  const da = ads.reduce((n, a) => n + a.da, 0);
+  return { ...g, adsUsd: usd, ads: da, profitAfterAds: g.profit - da };
 }
 
 function groupBy<K extends string | number | null>(parcels: CarrierStatParcel[], key: (p: CarrierStatParcel) => K, opts: CarrierStatOptions) {
@@ -169,7 +196,7 @@ function groupBy<K extends string | number | null>(parcels: CarrierStatParcel[],
   return [...buckets].map(([k, list]) => ({ key: k, ...group(list, opts) }));
 }
 
-export function computeCarrierStats(parcels: CarrierStatParcel[], opts: CarrierStatOptions): CarrierStats {
+export function computeCarrierStats(parcels: CarrierStatParcel[], opts: CarrierStatOptions, ads: CarrierStatAd[] = []): CarrierStats {
   const dated = parcels.filter((p) => p.createdAt);
   const byDate = (a: { key: string }, b: { key: string }) => b.key.localeCompare(a.key);
   const labels = new Map<string, number>();
@@ -180,11 +207,29 @@ export function computeCarrierStats(parcels: CarrierStatParcel[], opts: CarrierS
     const cur = payments.get(p.paymentStatus) ?? { count: 0, amount: 0 };
     payments.set(p.paymentStatus, { count: cur.count + 1, amount: cur.amount + p.price });
   }
+  const sumBy = (key: (a: CarrierStatAd) => string) => {
+    const m = new Map<string, { usd: number; da: number }>();
+    for (const a of ads) {
+      const cur = m.get(key(a)) ?? { usd: 0, da: 0 };
+      m.set(key(a), { usd: cur.usd + a.usd, da: cur.da + a.da });
+    }
+    return m;
+  };
+  // A period shows its own spend, even a month with ads and no parcel yet.
+  const months = groupBy(dated, (p) => dayDZ(p.createdAt!).slice(0, 7), opts);
+  for (const k of sumBy((a) => a.day.slice(0, 7)).keys()) if (!months.some((m) => m.key === k)) months.push({ key: k, ...group([], opts) });
+  const weeks = groupBy(dated, (p) => weekKey(p.createdAt!), opts);
+  for (const k of sumBy((a) => weekKey(`${a.day}T12:00:00Z`)).keys()) if (!weeks.some((w) => w.key === k)) weeks.push({ key: k, ...group([], opts) });
   return {
-    totals: group(parcels, opts),
-    byMonth: groupBy(dated, (p) => dayDZ(p.createdAt!).slice(0, 7), opts).sort(byDate),
-    byWeek: groupBy(dated, (p) => weekKey(p.createdAt!), opts).sort(byDate),
-    byOffer: groupBy(parcels, (p) => p.offer || '—', opts).sort((a, b) => b.parcels - a.parcels),
+    totals: withAds(group(parcels, opts), ads),
+    byMonth: months.map((m) => withAds(m, ads.filter((a) => a.day.slice(0, 7) === m.key))).sort(byDate),
+    byWeek: weeks.map((w) => withAds(w, ads.filter((a) => weekKey(`${a.day}T12:00:00Z`) === w.key))).sort(byDate),
+    // Per offer: only the spend typed for that offer.
+    byOffer: groupBy(parcels, (p) => p.offer || '—', opts)
+      .map((o) => withAds(o, ads.filter((a) => a.offer === o.key)))
+      .sort((a, b) => b.parcels - a.parcels),
+    adsByDay: [...sumBy((a) => a.day)].map(([day, v]) => ({ day, ...v })).sort((a, b) => b.day.localeCompare(a.day)),
+    adsByMonth: [...sumBy((a) => a.day.slice(0, 7))].map(([key, v]) => ({ key, ...v })).sort(byDate),
     byWilaya: groupBy(parcels, (p) => p.wilayaCode, opts).sort((a, b) => b.parcels - a.parcels),
     statuses: [...labels].map(([label, count]) => ({ label, stage: parcelStage(label === '—' ? null : label), count })).sort((a, b) => b.count - a.count),
     payments: [...payments].map(([status, v]) => ({ status, ...v })),

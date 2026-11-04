@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, index, integer, jsonb, pgTable, primaryKey, serial, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core';
+import { boolean, doublePrecision, index, integer, jsonb, pgTable, primaryKey, serial, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import type {
   CarrierConfig,
   CarrierProvider,
@@ -373,3 +373,25 @@ export const settings = pgTable('settings', {
   value: jsonb('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Ads ──────────────────────────────────────────────────────────────────
+
+/**
+ * Ad spend typed by hand, a day at a time: dollars and the dollar's price in
+ * dinars that day; optionally for one offer (else it counts for all).
+ */
+export const adSpend = pgTable(
+  'ad_spend',
+  {
+    id: serial('id').primaryKey(),
+    /** Algeria calendar day, YYYY-MM-DD. */
+    day: text('day').notNull(),
+    amountUsd: doublePrecision('amount_usd').notNull(),
+    usdRate: doublePrecision('usd_rate').notNull(),
+    offerId: integer('offer_id').references(() => offers.id, { onDelete: 'set null' }),
+    note: text('note'),
+    createdById: integer('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('ad_spend_day_idx').on(t.day)],
+);

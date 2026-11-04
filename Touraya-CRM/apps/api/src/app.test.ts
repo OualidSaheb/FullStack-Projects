@@ -990,3 +990,30 @@ describe('permissions given to one person', () => {
     expect((await api('PUT', `/users/${created.id}`, { extraPermissions: ['users.manage'] })).statusCode).toBe(400);
   });
 });
+
+describe('ad spend', () => {
+  it('typed by day in dollars with the rate; profit after ads in the carrier statistics; only allowed people write', async () => {
+    const offer = (await api('GET', '/offers')).json()[0];
+    expect((await api('POST', '/ads', { day: '2026-10-05', amountUsd: 20, usdRate: 250, offerId: offer.id, note: 'video A' })).statusCode).toBe(200);
+    expect((await api('POST', '/ads', { day: '2026-10-06', amountUsd: 12.5, usdRate: 252 })).statusCode).toBe(200);
+    expect((await api('POST', '/ads', { day: 'x', amountUsd: -1, usdRate: 0 })).statusCode).toBe(400);
+    const list = (await api('GET', '/ads')).json();
+    expect(list.slice(0, 2)).toEqual([
+      expect.objectContaining({ day: '2026-10-06', amountUsd: 12.5, usdRate: 252, offerName: null }),
+      expect.objectContaining({ day: '2026-10-05', amountUsd: 20, offerName: offer.name, note: 'video A' }),
+    ]);
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ has_more: false, data: [] }), { status: 200 })));
+    const s = (await api('GET', '/stats/carrier?refresh=1')).json();
+    vi.unstubAllGlobals();
+    expect(s.totals).toMatchObject({ adsUsd: 32.5, ads: 20 * 250 + 12.5 * 252 });
+    expect(s.totals.profitAfterAds).toBeCloseTo(s.totals.profit - (5000 + 3150));
+    expect(s.adsByMonth).toEqual([{ key: '2026-10', usd: 32.5, da: 8150 }]);
+
+    // An agent without the permission cannot write.
+    const agent = await login('a@test.dz', 'agent-pass');
+    expect((await api('POST', '/ads', { day: '2026-10-07', amountUsd: 5, usdRate: 250 }, agent)).statusCode).toBe(403);
+    await app.inject({ method: 'DELETE', url: `/api/ads/${list[0].id}`, headers: { cookie: adminCookie } });
+    expect((await api('GET', '/ads')).json().map((a: { id: number }) => a.id)).not.toContain(list[0].id);
+  });
+});

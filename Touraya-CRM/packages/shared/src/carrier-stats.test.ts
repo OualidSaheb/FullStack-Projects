@@ -56,4 +56,22 @@ describe('delivery company statistics', () => {
     expect(s.payments).toEqual(expect.arrayContaining([{ status: 'payed', count: 2, amount: 7000 }, { status: 'receivable', count: 1, amount: 4999 }]));
     expect(s.statuses[0]).toEqual({ label: 'Livré', stage: 'delivered', count: 3 });
   });
+
+  it('ad spend: by day and month, profit after ads per period and per offer', () => {
+    const parcels = [p({ createdAt: '2026-10-05T09:00:00Z' }), p({ createdAt: '2026-11-02T09:00:00Z', offer: 'other' })];
+    const ads = [
+      { day: '2026-10-05', usd: 20, da: 20 * 250, offer: 'pants 2pcs 3500' },
+      { day: '2026-10-05', usd: 10, da: 10 * 250, offer: null },
+      { day: '2026-11-02', usd: 30, da: 30 * 260, offer: 'other' },
+      { day: '2026-12-01', usd: 5, da: 5 * 260, offer: null }, // a month with ads and no parcel yet
+    ];
+    const s = computeCarrierStats(parcels, opts, ads);
+    // Each parcel: 3500 − 1700 − 50 = 1750 before ads.
+    expect(s.totals).toMatchObject({ profit: 3500, adsUsd: 65, ads: 5000 + 2500 + 7800 + 1300, profitAfterAds: 3500 - 16600 });
+    expect(s.byMonth.map((m) => [m.key, m.adsUsd, m.profitAfterAds])).toEqual([['2026-12', 5, -1300], ['2026-11', 30, 1750 - 7800], ['2026-10', 30, 1750 - 7500]]);
+    expect(s.byOffer.find((o) => o.key === 'pants 2pcs 3500')).toMatchObject({ adsUsd: 20, profitAfterAds: 1750 - 5000 }); // only its own spend
+    expect(s.adsByDay[s.adsByDay.length - 1]).toEqual({ day: '2026-10-05', usd: 30, da: 7500 });
+    expect(s.adsByMonth.map((m) => m.key)).toEqual(['2026-12', '2026-11', '2026-10']);
+    expect(s.byWeek.find((w) => w.key === '2026-10-05')).toMatchObject({ adsUsd: 30 });
+  });
 });

@@ -341,3 +341,14 @@ export interface ShippingStatsDTO {
   failReasons: { reason: string; count: number }[];
   daily: { day: string; count: number; delivered: number; returned: number }[];
 }
+
+export interface AdSpendDTO {
+  id: number;
+  day: string;
+  amountUsd: number;
+  usdRate: number;
+  offerId: number | null;
+  offerName: string | null;
+  note: string | null;
+  createdByName: string | null;
+}

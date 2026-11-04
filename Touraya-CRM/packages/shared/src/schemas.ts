@@ -123,6 +123,16 @@ export const resendSchema = z.object({
 });
 export type Resend = z.infer<typeof resendSchema>;
 
+/** A day's ad spend: dollars and that day's dollar price in dinars, optionally for one offer. */
+export const adSpendSchema = z.object({
+  day: z.string().date(),
+  amountUsd: z.number().positive().max(1_000_000),
+  usdRate: z.number().positive().max(10_000),
+  offerId: z.number().int().positive().nullable().optional(),
+  note: z.string().trim().max(200).optional(),
+});
+export type AdSpendInput = z.infer<typeof adSpendSchema>;
+
 /** Where a hand-typed order came from (shown in the order and the statistics' sources). */
 export const MANUAL_ORIGINS = ['الموقع', 'Instagram', 'TikTok', 'WhatsApp', 'رسائل Facebook', 'هاتف', 'المحل', 'أخرى'] as const;
 
@@ -232,7 +242,7 @@ export const userCreateSchema = z.object({
   role: z.enum(ROLES),
   active: z.boolean().default(true),
   /** Granted on top of the role (only the grantable ones). */
-  extraPermissions: z.array(z.enum(['stats.carrier', 'stats.view', 'shipping.send', 'returns.manage', 'inventory.manage'])).max(10).default([]),
+  extraPermissions: z.array(z.enum(['stats.carrier', 'ads.manage', 'stats.view', 'shipping.send', 'returns.manage', 'inventory.manage'])).max(10).default([]),
 });
 export const userUpdateSchema = userCreateSchema.partial().extend({ password: z.string().min(8).max(200).optional() });
 export type UserCreate = z.infer<typeof userCreateSchema>;
